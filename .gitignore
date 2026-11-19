@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+/vendor/
+/storage/*
+!/storage/.gitkeep
+*.log
+*.sql.gz
+*.dump
+firestore-exports/
+service-account*.json
+firebase-admin*.json
+.DS_Store
