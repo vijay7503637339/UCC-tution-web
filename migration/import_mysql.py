@@ -48,7 +48,8 @@ def as_datetime(value, default=None):
     except ValueError: return default
 
 def numeric_id(document_id, data):
-    raw = data.get("id", document_id)
+    raw = data.get("id")
+    if raw is None or raw == "": raw = document_id
     try: return int(raw)
     except (TypeError, ValueError): return None
 
