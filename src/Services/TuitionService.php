@@ -153,7 +153,7 @@ final class TuitionService {
   $students=self::all('students',['status'=>'active']);$payments=self::all('fees',['month'=>$month]);$paid=[];
   foreach($payments as $p)$paid[(int)$p['student_id']]=($paid[(int)$p['student_id']]??0)+(float)$p['amount'];
   $today=new DateTimeImmutable('today');$out=[];
-  foreach($students as $s){$balance=max(0,(float)$s['monthly_fee']-($paid[(int)$s['id']]??0));if($balance<=0)continue;
+  foreach($students as $s){$joinedMonth=substr((string)($s['joined_on']??''),0,7);if($joinedMonth!==''&&$joinedMonth>$month)continue;$balance=max(0,(float)$s['monthly_fee']-($paid[(int)$s['id']]??0));if($balance<=0)continue;
    $dueMonth=(int)$s['is_fees_advance']?new DateTimeImmutable($month.'-01'):new DateTimeImmutable($month.'-01 +1 month');$day=min(max(1,(int)$s['due_day']),(int)$dueMonth->format('t'));$date=$dueMonth->setDate((int)$dueMonth->format('Y'),(int)$dueMonth->format('m'),$day);
    $out[]=$s+['paid_for_month'=>$paid[(int)$s['id']]??0,'pending_amount'=>$balance,'due_date'=>$date->format('Y-m-d'),'days_overdue'=>$today>$date?(int)$date->diff($today)->format('%a'):0];
   }
