@@ -81,9 +81,11 @@ def main():
         connection.commit()
     try:
         with path.open("r", encoding="utf-8") as stream:
-            for line_no, line in enumerate(stream, 1):
-                if not line.strip(): continue
-                rec = json.loads(line); collection_path = rec["collection_path"]; doc_id = rec["document_id"]
+            records = [json.loads(line) for line in stream if line.strip()]
+            priority = {"teachers": 0, "batches": 1, "students": 2, "fees": 3, "enquiries": 4, "expenses": 5, "attendance": 6, "actionLogs": 7}
+            records.sort(key=lambda rec: priority.get(rec.get("collection_path", "").split("/")[0], 50))
+            for line_no, rec in enumerate(records, 1):
+                collection_path = rec["collection_path"]; doc_id = rec["document_id"]
                 raw = rec.get("data") or {}; data = decode(raw)
                 counts[collection_path] = counts.get(collection_path, 0) + 1
                 if args.dry_run:
@@ -112,6 +114,11 @@ def main():
                                     for child in children:
                                         if not isinstance(child,dict): continue
                                         cid=numeric_id(child.get("id",rid),child) or rid
+                                        cur.execute("SELECT family_id FROM student_children WHERE id=%s", (cid,))
+                                        existing_child = cur.fetchone()
+                                        if existing_child and int(existing_child["family_id"]) != rid:
+                                            warnings.append(f"{rec['document_path']}: child ID {cid} already belongs to another family; archived only")
+                                            continue
                                         execute_upsert(cur,"student_children",{"id":cid,"family_id":rid,"name":str(child.get("name","")),"class_name":str(child.get("className",child.get("class_name",""))),"batch_id":child.get("batchId",child.get("batch_id",data.get("batchId"))),"is_active":int(bool(child.get("isActive",child.get("is_active",True)))),"raw_data":json.dumps(child,ensure_ascii=False)})
                                 else: warnings.append(f"{rec['document_path']}: non-numeric student id, archived only")
                             elif key == "fees":
