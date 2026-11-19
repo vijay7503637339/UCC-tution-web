@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS attendance_sessions (
  CONSTRAINT fk_attendance_batch FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS attendance_records (
- id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, session_id VARCHAR(100) NOT NULL,
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, session_id VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
  student_id BIGINT NULL, attendance_status VARCHAR(30) NOT NULL,
  UNIQUE KEY uq_attendance_session_student(session_id,student_id), INDEX idx_attendance_student(student_id),
  CONSTRAINT fk_attendance_record_session FOREIGN KEY(session_id) REFERENCES attendance_sessions(id) ON DELETE CASCADE,
