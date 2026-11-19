@@ -12,8 +12,11 @@ from firebase_admin import credentials, firestore
 def encode(value: Any) -> Any:
     if isinstance(value, datetime):
         return {"__ucc_type__": "timestamp", "value": value.astimezone(timezone.utc).isoformat()}
-    if isinstance(value, firestore.DocumentReference):
+    # Avoid relying on SDK re-export locations for Firestore value classes.
+    if value.__class__.__name__ == "DocumentReference" and hasattr(value, "path"):
         return {"__ucc_type__": "document_reference", "path": value.path}
+    if value.__class__.__name__ == "GeoPoint" and hasattr(value, "latitude") and hasattr(value, "longitude"):
+        return {"__ucc_type__": "geo_point", "latitude": value.latitude, "longitude": value.longitude}
     if isinstance(value, bytes):
         import base64
         return {"__ucc_type__": "bytes", "value": base64.b64encode(value).decode("ascii")}
