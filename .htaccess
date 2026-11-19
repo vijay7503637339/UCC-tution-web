@@ -4,4 +4,7 @@ Options -Indexes
 </FilesMatch>
 RewriteEngine On
 RewriteRule ^(\.git|\.github)/ - [F,L,NC]
-RewriteRule ^(src|database|migration|storage|bin)/ - [F,L,NC]
+RewriteRule ^(src|database|migration|storage|bin|tests|vendor)/ - [F,L,NC]
+# Keep the application source outside the public entry point.
+RewriteRule ^$ public/ [L]
+RewriteRule ^(.*)$ public/$1 [L]
