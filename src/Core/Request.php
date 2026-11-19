@@ -10,7 +10,10 @@ final class Request {
   return $data;
  }
  public static function bearer():?string {
-  $header=$_SERVER['HTTP_AUTHORIZATION']??'';
+  $header=$_SERVER['HTTP_AUTHORIZATION']??$_SERVER['REDIRECT_HTTP_AUTHORIZATION']??'';
+  if($header===''&&function_exists('getallheaders')){
+   foreach(getallheaders() as $name=>$value)if(strtolower((string)$name)==='authorization'){$header=(string)$value;break;}
+  }
   return preg_match('/^Bearer\s+(.+)$/i',trim($header),$m)?trim($m[1]):null;
  }
  public static function page(string $key,int $default,int $min,int $max):int {
