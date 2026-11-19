@@ -7,6 +7,7 @@ use Ucc\Core\Database;
 use Ucc\Core\Helpers as H;
 use Ucc\Core\Response;
 use Ucc\Services\TuitionService;
+use Ucc\Services\AnalyticsService;
 
 final class WebController {
  private const TITLES=['students'=>'Students','batches'=>'Batches','teachers'=>'Teachers','fees'=>'Fee Management','enquiries'=>'Enquiries & Admissions','expenses'=>'Expenses','action-logs'=>'Activity Logs'];
@@ -20,6 +21,7 @@ final class WebController {
   if(preg_match('#^/enquiries/([0-9]+)/convert$#',$path,$conversion))$this->convertEnquiry((int)$conversion[1],$method);
   if($path==='/attendance')$this->attendance($method);
   if($path==='/reports')$this->reports();
+  if($path==='/analytics')$this->analytics();
   if($path==='/reminders')$this->reminders();
   if($path==='/assistant')$this->assistant();
   if(preg_match('#^/attendance/([^/]+)$#',$path,$m))$this->attendanceDetail(rawurldecode($m[1]));
@@ -245,6 +247,16 @@ final class WebController {
   $rows=TuitionService::all('fees',['month'=>$month]);header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="ucc-fees-'.$month.'.csv"');$out=fopen('php://output','w');fputcsv($out,['Receipt ID','Student ID','Student','Fee Month','Paid On','Amount','Method','Note']);
   foreach($rows as $r)fputcsv($out,[$r['id'],$r['student_id'],$this->lookupName('students',$r['student_id']),$r['fee_month'],$r['paid_on'],$r['amount'],$r['method'],$r['note']]);fclose($out);exit;
  }
+ private function analytics():never {
+  $month=$this->monthParam();$data=AnalyticsService::overview($month);$totals=$data['totals'];$body='<div class="toolbar"><form method="get" class="search-form"><input type="month" name="month" value="'.H::e($month).'"><button class="btn secondary">Apply</button></form><span class="pill blue">'.(int)$totals['classes'].' classes</span></div>';
+  $body.='<div class="grid stats three">';
+  foreach([['Students',number_format((int)$totals['students'])],['Student families',number_format((int)$totals['families'])],['Expected fees',H::money($totals['expected'])],['Collected',H::money($totals['collected'])],['Present marks',number_format((int)$totals['present'])],['Absent marks',number_format((int)$totals['absent'])]] as $card)$body.='<article class="stat-card"><span>'.H::e($card[0]).'</span><strong>'.H::e($card[1]).'</strong></article>';
+  $body.='</div><section class="panel section"><div class="panel-head"><h3>Class-wise performance</h3><span class="muted">Fee month '.H::e(date('F Y',strtotime($month.'-01'))).'</span></div><div class="table-wrap"><table><thead><tr><th>Class</th><th>Families</th><th>Students</th><th>Expected fees</th><th>Collected</th><th>Present</th><th>Absent</th><th>Leave</th><th>Attendance rate</th></tr></thead><tbody>';
+  foreach($data['classes'] as $r){$marked=(int)$r['present']+(int)$r['absent']+(int)$r['leave'];$rate=$marked>0?round(((int)$r['present']/$marked)*100):0;$body.='<tr><td><strong>'.H::e($r['class_name']).'</strong></td><td>'.(int)$r['families'].'</td><td>'.(int)$r['students'].'</td><td>'.H::money($r['expected']).'</td><td>'.H::money($r['collected']).'</td><td>'.(int)$r['present'].'</td><td>'.(int)$r['absent'].'</td><td>'.(int)$r['leave'].'</td><td><div class="rate"><span style="width:'.$rate.'%"></span></div><small class="subline">'.$rate.'%</small></td></tr>';}
+  if(!$data['classes'])$body.='<tr><td colspan="9" class="empty">No class data available for this month.</td></tr>';
+  $body.='</tbody></table></div><p class="muted tiny">Attendance rate is based on recorded present, absent and leave marks for the selected calendar month.</p></section>';
+  Response::html($this->layout('Student Analytics',$body));
+ }
  private function reminders():never {
   $month=$this->monthParam();$items=TuitionService::reminders($month);$body='<div class="toolbar"><form method="get" class="search-form"><input type="month" name="month" value="'.H::e($month).'"><button class="btn secondary">Apply</button></form><span class="pill amber">'.count($items).' students with balance</span></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Guardian phone</th><th>Fee</th><th>Paid</th><th>Pending</th><th>Due date</th><th>Reminder</th></tr></thead><tbody>';
   foreach($items as $s){$phone=preg_replace('/\D+/','',(string)$s['guardian_phone']);$phone=(strlen($phone)===10?'91':'').$phone;$message='Hello, fee reminder for '.$s['name'].'. Pending amount: INR '.number_format((float)$s['pending_amount'],0).' for '.date('M Y',strtotime($month.'-01')).'. Please clear it soon. - UCC';$url='https://wa.me/'.$phone.'?text='.rawurlencode($message);
@@ -283,7 +295,7 @@ final class WebController {
  private function flashHtml(?array $flash):string {if(!$flash)return '';return '<div class="notice '.H::e($flash['type']).'">'.H::e($flash['message']).'</div>';}
  private function layout(string $title,string $content,bool $authed=true):string {
   $flash=$this->flashHtml(H::takeFlash());$user=Auth::user();
-  $nav=[['/','Dashboard','⌂'],['/students','Students','♙'],['/fees','Fees','₹'],['/batches','Batches','▦'],['/teachers','Teachers','♧'],['/attendance','Attendance','✓'],['/enquiries','Enquiries','◇'],['/expenses','Expenses','↗'],['/reports','Reports','▤'],['/reminders','Reminders','◷'],['/assistant','Fee Agent','✦'],['/action-logs','Activity Logs','≡']];
+  $nav=[['/','Dashboard','⌂'],['/students','Students','♙'],['/fees','Fees','₹'],['/batches','Batches','▦'],['/teachers','Teachers','♧'],['/attendance','Attendance','✓'],['/enquiries','Enquiries','◇'],['/expenses','Expenses','↗'],['/reports','Reports','▤'],['/analytics','Analytics','◫'],['/reminders','Reminders','◷'],['/assistant','Fee Agent','✦'],['/action-logs','Activity Logs','≡']];
   $html='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'.H::e($title).' · UCC Tuition Manager</title><link rel="stylesheet" href="/assets/app.css"></head><body>';
   if($authed){$html.='<div class="app-shell"><aside class="sidebar"><a class="brand" href="/"><span class="logo">U</span><span><strong>UCC</strong><small>Tuition Manager</small></span></a><div class="nav-caption">WORKSPACE</div><nav>';foreach($nav as [$url,$label,$icon])$html.='<a class="'.(($_SERVER['REQUEST_URI']??'/')===$url?'active':'').'" href="'.$url.'"><span class="nav-icon">'.$icon.'</span>'.H::e($label).'</a>';$html.='</nav><div class="sidebar-foot"><span class="online-dot"></span>MySQL web workspace</div></aside><main class="main"><header class="topbar"><div><p class="eyebrow">UNIQUE COACHING CLASSES</p><h1>'.H::e($title).'</h1></div><div class="top-actions"><span class="user-chip">'.H::e($user['name']??'Admin').'<i></i></span><form method="post" action="/logout">'.$this->csrfInput().'<button class="btn secondary small-btn">Sign out</button></form></div></header>'.$flash.$content.'<footer>UCC Tuition Manager Web · Separate MySQL workspace · <span data-current-year></span></footer></main></div>';}
   else{$html.=$flash.$content;}
