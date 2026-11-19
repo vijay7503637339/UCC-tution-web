@@ -87,9 +87,8 @@ final class WebController {
    'batches'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['schedule']).'</td><td>'.H::e($this->lookupName('teachers',$r['teacher_id']??null)).'</td>'.$actions($r['id']),
    'teachers'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['phone']).'</td>'.$actions($r['id']),
    'fees'=>'<td>#'.H::e($r['id']).'</td><td>'.H::e($this->lookupName('students',$r['student_id'])).'</td><td>'.H::date($r['fee_month']).'</td><td>'.H::date($r['paid_on']).'</td><td><strong>'.H::money($r['amount']).'</strong></td><td>'.H::e($r['method']).'</td>'.$actions($r['id']),
-   'enquiries'=>'<td><strong>'.H::e($r['student_name']).'</strong></td><td>'.H::e($r['parent_name']).'</td><td>'.H::e($r['phone']).'</td><td>'.H::e($r['class_name']).'</td><td><span class="pill blue">'.H::e($r['status']).'</span></td><td>'.H::date($r['expected_join_date']).'</td>'.$actions($r['id']),
-   'expenses'=>'<td>'.H::date($r['expense_date']).'</td><td>'.H::e($r['description']).'</td><td>'.H::e($r['category']).'</td><td><strong>'.H::money($r['amount']).'</strong></td>'.$actions($r['id']),
    'enquiries'=>'<td><strong>'.H::e($r['student_name']).'</strong></td><td>'.H::e($r['parent_name']).'</td><td>'.H::e($r['phone']).'</td><td>'.H::e($r['class_name']).'</td><td><span class="pill blue">'.H::e($r['status']).'</span></td><td>'.H::date($r['expected_join_date']).'</td><td class="actions">'.(empty($r['converted_to_student_id'])?'<a href="/enquiries/'.(int)$r['id'].'/convert">Convert</a>':'<a href="/students/'.(int)$r['converted_to_student_id'].'">Student</a>').'<a href="/enquiries/'.(int)$r['id'].'/edit">Edit</a><form method="post" action="/enquiries/'.(int)$r['id'].'/delete">'.self::csrfStatic().'<button class="link danger">Delete</button></form></td>',
+   'expenses'=>'<td>'.H::date($r['expense_date']).'</td><td>'.H::e($r['description']).'</td><td>'.H::e($r['category']).'</td><td><strong>'.H::money($r['amount']).'</strong></td>'.$actions($r['id']),
    default=>'<td>'.H::date($r['log_date']).'</td><td>'.H::e($r['message']).'</td><td>'.H::e($r['type']).'</td>'
   };
  }
