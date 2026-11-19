@@ -1,6 +1,7 @@
 Options -Indexes
-<FilesMatch "^(\.env|composer\.(json|lock)|README\.md)$">
+<FilesMatch "^(\.env(\..*)?|\.gitignore|composer\.(json|lock)|README\.md)$">
   Require all denied
 </FilesMatch>
 RewriteEngine On
+RewriteRule ^(\.git|\.github)/ - [F,L,NC]
 RewriteRule ^(src|database|migration|storage|bin)/ - [F,L,NC]
