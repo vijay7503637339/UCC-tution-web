@@ -93,7 +93,7 @@ def main():
                 try:
                     with connection.cursor() as cur:
                         cur.execute("INSERT INTO firestore_document_archive(collection_path,document_id,parent_document_path,document_json) VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE document_json=VALUES(document_json),imported_at=CURRENT_TIMESTAMP",
-                            (collection_path, doc_id, rec.get("parent_document_path"), json.dumps(raw, ensure_ascii=False, separators=(",", ":"))))
+                            (collection_path, doc_id, rec.get("parent_document_path") or "", json.dumps(raw, ensure_ascii=False, separators=(",", ":"))))
                         if collection_path in ("teachers", "batches", "students", "fees", "enquiries", "attendance", "expenses", "actionLogs") and "/" not in collection_path:
                             key = collection_path
                             if key == "teachers":
