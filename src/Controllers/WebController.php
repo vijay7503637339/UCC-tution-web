@@ -16,6 +16,8 @@ final class WebController {
   if($path==='/logout'&&$method==='POST'){H::verifyCsrf();Auth::logout();Response::redirect('/login');}
   Auth::requireWeb();
   if($path==='/'||$path==='/dashboard')$this->dashboard();
+  if(preg_match('#^/students/([0-9]+)$#',$path,$profile)&&$method==='GET')$this->studentProfile((int)$profile[1]);
+  if(preg_match('#^/enquiries/([0-9]+)/convert$#',$path,$conversion))$this->convertEnquiry((int)$conversion[1],$method);
   if($path==='/attendance')$this->attendance($method);
   if($path==='/reports')$this->reports();
   if($path==='/reminders')$this->reminders();
@@ -81,14 +83,57 @@ final class WebController {
  private function resourceCells(string $key,array $r):string {
   $actions=static fn($id)=>'<td class="actions"><a href="/'.$key.'/'.rawurlencode((string)$id).'/edit">Edit</a><form method="post" action="/'.$key.'/'.rawurlencode((string)$id).'/delete" onsubmit="return confirm(\'Delete this record?\')">'.self::csrfStatic().'<button class="link danger">Delete</button></form></td>';
   return match($key){
-   'students'=>'<td><strong>'.H::e($r['name']).'</strong><small class="subline">'.H::e($r['guardian_phone']).'</small></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::e($this->lookupName('batches',$r['batch_id']??null)).'</td><td>'.H::money($r['monthly_fee']).'</td><td>'.H::e($r['due_day']).'</td><td><span class="pill '.($r['status']==='active'?'green':'gray').'">'.H::e(ucfirst($r['status'])).'</span></td>'.$actions($r['id']),
+   'students'=>'<td><strong><a href="/students/'.(int)$r['id'].'">'.H::e($r['name']).'</a></strong><small class="subline">'.H::e($r['guardian_phone']).'</small></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::e($this->lookupName('batches',$r['batch_id']??null)).'</td><td>'.H::money($r['monthly_fee']).'</td><td>'.H::e($r['due_day']).'</td><td><span class="pill '.($r['status']==='active'?'green':'gray').'">'.H::e(ucfirst($r['status'])).'</span></td>'.$actions($r['id']),
    'batches'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['schedule']).'</td><td>'.H::e($this->lookupName('teachers',$r['teacher_id']??null)).'</td>'.$actions($r['id']),
    'teachers'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['phone']).'</td>'.$actions($r['id']),
    'fees'=>'<td>#'.H::e($r['id']).'</td><td>'.H::e($this->lookupName('students',$r['student_id'])).'</td><td>'.H::date($r['fee_month']).'</td><td>'.H::date($r['paid_on']).'</td><td><strong>'.H::money($r['amount']).'</strong></td><td>'.H::e($r['method']).'</td>'.$actions($r['id']),
    'enquiries'=>'<td><strong>'.H::e($r['student_name']).'</strong></td><td>'.H::e($r['parent_name']).'</td><td>'.H::e($r['phone']).'</td><td>'.H::e($r['class_name']).'</td><td><span class="pill blue">'.H::e($r['status']).'</span></td><td>'.H::date($r['expected_join_date']).'</td>'.$actions($r['id']),
    'expenses'=>'<td>'.H::date($r['expense_date']).'</td><td>'.H::e($r['description']).'</td><td>'.H::e($r['category']).'</td><td><strong>'.H::money($r['amount']).'</strong></td>'.$actions($r['id']),
+   'enquiries'=>'<td><strong>'.H::e($r['student_name']).'</strong></td><td>'.H::e($r['parent_name']).'</td><td>'.H::e($r['phone']).'</td><td>'.H::e($r['class_name']).'</td><td><span class="pill blue">'.H::e($r['status']).'</span></td><td>'.H::date($r['expected_join_date']).'</td><td class="actions">'.(empty($r['converted_to_student_id'])?'<a href="/enquiries/'.(int)$r['id'].'/convert">Convert</a>':'<a href="/students/'.(int)$r['converted_to_student_id'].'">Student</a>').'<a href="/enquiries/'.(int)$r['id'].'/edit">Edit</a><form method="post" action="/enquiries/'.(int)$r['id'].'/delete">'.self::csrfStatic().'<button class="link danger">Delete</button></form></td>',
    default=>'<td>'.H::date($r['log_date']).'</td><td>'.H::e($r['message']).'</td><td>'.H::e($r['type']).'</td>'
   };
+ }
+ private function studentProfile(int $id):never {
+  $student=TuitionService::find('students',$id);
+  if(!$student)Response::html($this->layout('Student profile','<div class="panel">Student not found.</div>'),404);
+  $payments=TuitionService::all('fees',['student_id'=>$id]);
+  $body='<div class="toolbar"><div><a class="btn secondary" href="/students">← Students</a> <a class="btn primary" href="/students/'.$id.'/edit">Edit student</a></div><span class="pill '.($student['status']==='active'?'green':'gray').'">'.H::e(ucfirst($student['status'])).'</span></div>';
+  $body.='<div class="grid two"><section class="panel"><div class="panel-head"><h3>'.H::e($student['name']).'</h3><span class="muted">Student / family profile</span></div><div class="insight-list"><div><span>Class</span><strong>'.H::e($student['class_name']).'</strong></div><div><span>Guardian phone</span><strong>'.H::e($student['guardian_phone']).'</strong></div><div><span>Batch</span><strong>'.H::e($this->lookupName('batches',$student['batch_id'])).'</strong></div><div><span>Teacher</span><strong>'.H::e($this->lookupName('teachers',$student['teacher_id'])).'</strong></div><div><span>Monthly fee</span><strong>'.H::money($student['monthly_fee']).'</strong></div><div><span>Due day</span><strong>'.H::e($student['due_day']).'</strong></div><div><span>Joined</span><strong>'.H::date($student['joined_on']).'</strong></div></div></section><section class="panel"><div class="panel-head"><h3>Child profiles</h3><a href="/students/'.$id.'/edit">Manage</a></div><div class="history-list">';
+  foreach(($student['children']??[]) as $child)$body.='<div class="history-item"><span><strong>'.H::e($child['name']).'</strong><small>'.H::e($child['class_name']).'</small></span><span class="pill '.((int)$child['is_active']===1?'green':'gray').'">'.((int)$child['is_active']===1?'Active':'Inactive').'</span></div>';
+  if(empty($student['children']))$body.='<p class="empty">No child profiles recorded.</p>';
+  $body.='</div></section></div><section class="panel section"><div class="panel-head"><h3>Fee payment history</h3><a class="btn primary" href="/fees/new">Record payment</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Fee month</th><th>Paid on</th><th>Amount</th><th>Method</th><th>Note</th></tr></thead><tbody>';
+  foreach($payments as $p)$body.='<tr><td>#'.H::e($p['id']).'</td><td>'.H::date($p['fee_month']).'</td><td>'.H::date($p['paid_on']).'</td><td><strong>'.H::money($p['amount']).'</strong></td><td>'.H::e($p['method']).'</td><td>'.H::e($p['note']).'</td></tr>';
+  if(!$payments)$body.='<tr><td colspan="6" class="empty">No fee transactions yet.</td></tr>';
+  $body.='</tbody></table></div></section>';
+  Response::html($this->layout('Student profile',$body));
+ }
+ private function convertEnquiry(int $id,string $method):never {
+  $enquiry=TuitionService::find('enquiries',$id);
+  if(!$enquiry)Response::html($this->layout('Convert enquiry','<div class="panel">Enquiry not found.</div>'),404);
+  if(!empty($enquiry['converted_to_student_id']))Response::redirect('/students/'.(int)$enquiry['converted_to_student_id']);
+  if($method==='POST'){
+   H::verifyCsrf();
+   try{
+    $studentId=(int)TuitionService::save('students',[
+     'name'=>$enquiry['student_name'],'class_name'=>$enquiry['class_name'],'guardian_phone'=>$enquiry['phone'],
+     'batch_id'=>$_POST['batch_id']??null,'teacher_id'=>$_POST['teacher_id']??null,
+     'monthly_fee'=>$_POST['monthly_fee']??0,'due_day'=>$_POST['due_day']??10,
+     'joined_on'=>$_POST['joined_on']??date('Y-m-d'),'is_fees_advance'=>$_POST['is_fees_advance']??1,'status'=>'active'
+    ]);
+    $enquiry['converted_to_student_id']=$studentId;$enquiry['admission_date']=$_POST['joined_on']??date('Y-m-d');$enquiry['status']='Confirmed';
+    TuitionService::save('enquiries',$enquiry,$id);
+    H::flash('success','Enquiry converted to student admission.');Response::redirect('/students/'.$studentId);
+   }catch(\Throwable $e){H::flash('error',$e->getMessage());Response::redirect('/enquiries/'.$id.'/convert');}
+  }
+  $body='<div class="form-panel"><p class="muted">Convert enquiry for <strong>'.H::e($enquiry['student_name']).'</strong> into a student record. This creates a new student in the web MySQL database and marks the enquiry as confirmed.</p><form method="post" action="/enquiries/'.$id.'/convert">'.$this->csrfInput().'<div class="form-grid">';
+  $body.=H::field('monthly_fee','Monthly fee (INR)','0','number',['min'=>'0','step'=>'0.01','required'=>'required']);
+  $body.=H::field('due_day','Fee due day','10','number',['min'=>'1','max'=>'31']);
+  $body.=H::field('joined_on','Admission date',date('Y-m-d'),'date');
+  $body.=$this->selectHtml('batch_id','Batch',TuitionService::all('batches'),null);
+  $body.=$this->selectHtml('teacher_id','Teacher',TuitionService::all('teachers'),null);
+  $body.=$this->selectSimple('is_fees_advance','Fee collection timing',['1'=>'Advance (same month)','0'=>'After month ends'],'1');
+  $body.='</div><div class="form-actions"><a class="btn secondary" href="/enquiries">Cancel</a><button class="btn primary">Create admission</button></div></form></div>';
+  Response::html($this->layout('Convert enquiry to admission',$body));
  }
  private function resourceForm(string $key,?string $id):never {
   if($key==='action-logs')Response::redirect('/activity-logs');
