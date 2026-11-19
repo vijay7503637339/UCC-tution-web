@@ -1,0 +1,16 @@
+{
+  "name": "ucc/tuition-manager-web",
+  "description": "Standalone PHP and MySQL web panel and REST API for UCC Tuition Manager",
+  "type": "project",
+  "require": {
+    "php": "^8.2",
+    "ext-json": "*",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "Ucc\\\\": "src/"
+    }
+  }
+}
