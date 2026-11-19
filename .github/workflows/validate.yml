@@ -1,4 +1,4 @@
-name: Validate PHP and migration scripts
+name: Validate PHP, database and migration scripts
 
 on:
   push:
@@ -18,9 +18,48 @@ jobs:
           extensions: pdo_mysql, mbstring
           coverage: none
       - name: Lint PHP files
-        run: find src public bin -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: find src public bin tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Validate Composer metadata
         run: composer validate --no-check-publish
+
+  mysql-smoke:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ucc_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - name: Configure CI database
+        run: |
+          cat > .env <<'EOF'
+          APP_ENV=test
+          APP_DEBUG=false
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_NAME=ucc_test
+          DB_USER=root
+          DB_PASS=root
+          EOF
+      - name: Create schema
+        run: mysql --host=127.0.0.1 --user=root --password=root ucc_test < database/schema.sql
+      - name: Run MySQL integration smoke test
+        run: php tests/smoke.php
 
   python-check:
     runs-on: ubuntu-latest
