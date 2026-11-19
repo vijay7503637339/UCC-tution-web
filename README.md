@@ -63,10 +63,10 @@ php -S 127.0.0.1:8000 -t public public/index.php
 1. Create a separate database and database user in cPanel. Grant only that database the required privileges.
 2. Upload the repository outside the public web directory where possible.
 3. Configure the domain/subdomain document root to project/public/, not the project root.
-4. Copy .env.example to .env in the project root and set the actual cPanel database name, username, password and host.
+4. Copy .env.example to .env in the project root and set the actual cPanel database name, username, password and host. Set APP_URL to the full public URL, including any subfolder (for example https://example.com/ucc). The application derives its base path from APP_URL. Optionally set APP_BASE_PATH=/ucc to override it.
 5. Import database/schema.sql using phpMyAdmin.
 6. Use cPanel Terminal / SSH (if enabled) to run the CLI admin creation command. Do not expose the bin/ directory over HTTP.
-7. Confirm /api/v1/health returns JSON and /login displays the sign-in page.
+7. Confirm /ucc/api/v1/health returns JSON and /ucc/login displays the sign-in page when deployed under /ucc. For a root deployment, omit the /ucc prefix.
 8. Keep PHP error display disabled in production and use HTTPS.
 
 If running the importer from your Mac, the hosting account must allow MySQL connections from your current public IP (or use an approved SSH tunnel). Do not open MySQL to all IPs. If remote MySQL is unavailable, deploy a controlled importer on the server instead; do not put database credentials into browser JavaScript.
