@@ -1,0 +1,33 @@
+name: Validate PHP and migration scripts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  php-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - name: Lint PHP files
+        run: find src public bin -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Validate Composer metadata
+        run: composer validate --no-check-publish
+
+  python-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile migration utilities
+        run: python -m py_compile migration/export_firestore.py migration/import_mysql.py migration/verify_migration.py
