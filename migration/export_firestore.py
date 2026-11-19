@@ -28,17 +28,24 @@ def encode(value: Any) -> Any:
         return value
     return str(value)
 
+def collection_path(collection_ref) -> str:
+    """Build a collection path using the public parent and id properties."""
+    parent = collection_ref.parent
+    return f"{parent.path}/{collection_ref.id}" if parent is not None else collection_ref.id
+
 def export_collection(db, collection_ref, writer, summary):
+    path = collection_path(collection_ref)
     for snapshot in collection_ref.stream():
+        parent_document = snapshot.reference.parent.parent
         record = {
-            "collection_path": collection_ref.path,
+            "collection_path": path,
             "document_id": snapshot.id,
             "document_path": snapshot.reference.path,
-            "parent_document_path": snapshot.reference.parent.parent.path if snapshot.reference.parent.parent else None,
+            "parent_document_path": parent_document.path if parent_document is not None else None,
             "data": encode(snapshot.to_dict() or {}),
         }
-        writer.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
-        summary[collection_ref.path] = summary.get(collection_ref.path, 0) + 1
+        writer.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\\n")
+        summary[path] = summary.get(path, 0) + 1
         for child_collection in snapshot.reference.collections():
             export_collection(db, child_collection, writer, summary)
 
@@ -55,7 +62,8 @@ def main():
     try:
         app = firebase_admin.get_app()
     except ValueError:
-        app = firebase_admin.initialize_app(cred, {"projectId": args.project_id} if args.project_id else None)
+        firebase_admin.initialize_app(cred, {"projectId": args.project_id} if args.project_id else None)
+        app = firebase_admin.get_app()
     db = firestore.client(app=app)
     output = Path(args.output) if args.output else Path(__file__).resolve().parent / "exports" / ("firestore-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".jsonl")
     output.parent.mkdir(parents=True, exist_ok=True)
