@@ -48,10 +48,21 @@ def as_datetime(value, default=None):
     except ValueError: return default
 
 def numeric_id(document_id, data):
+    try: return int(document_id)
+    except (TypeError, ValueError): pass
     raw = data.get("id")
-    if raw is None or raw == "": raw = document_id
+    if raw is None or raw == "": return None
     try: return int(raw)
     except (TypeError, ValueError): return None
+
+def as_bool(value, default=True):
+    if isinstance(value, bool): return value
+    if isinstance(value, (int, float)): return value != 0
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1", "yes"): return True
+        if text in ("false", "0", "no"): return False
+    return default
 
 def positive_fk(cur, table, value):
     try: candidate = int(value)
@@ -116,8 +127,8 @@ def main():
                                 rid=numeric_id(doc_id,data)
                                 if rid is not None:
                                     joined=as_date(data.get("joinedOn"),date.today())
-                                    children=data.get("children") if isinstance(data.get("children"),list) else []
-                                    execute_upsert(cur,"students",{"id":rid,"name":str(data.get("name","")),"class_name":str(data.get("className",data.get("class",""))),"guardian_phone":str(data.get("guardianPhone",data.get("phone",""))),"batch_id":positive_fk(cur,"batches",data.get("batchId")),"teacher_id":positive_fk(cur,"teachers",data.get("teacherId")),"monthly_fee":float(data.get("monthlyFee",0) or 0),"due_day":max(1,min(31,int(data.get("dueDay",10) or 10))),"joined_on":joined,"is_fees_advance":int(bool(data.get("isFeeAdvance",data.get("isFeesAdvance",True)))),"status":"inactive" if data.get("status")=="inactive" else "active","last_reminder":as_datetime(data.get("lastReminder")),"last_payment_date":as_datetime(data.get("lastPaymentDate")),"raw_data":json.dumps(raw,ensure_ascii=False)})
+                                    children=[item for item in data.get("children",[]) if isinstance(item,dict)] if isinstance(data.get("children"),list) else []
+                                    execute_upsert(cur,"students",{"id":rid,"name":str(data.get("name","")),"class_name":str(data.get("className",data.get("class",""))),"guardian_phone":str(data.get("guardianPhone",data.get("phone",""))),"batch_id":positive_fk(cur,"batches",data.get("batchId")),"teacher_id":positive_fk(cur,"teachers",data.get("teacherId")),"monthly_fee":float(data.get("monthlyFee",0) or 0),"due_day":max(1,min(31,int(data.get("dueDay",10) or 10))),"joined_on":joined,"is_fees_advance":int(as_bool(data.get("isFeeAdvance",data.get("isFeesAdvance",True)), True)),"status":"inactive" if data.get("status")=="inactive" else "active","last_reminder":as_datetime(data.get("lastReminder")),"last_payment_date":as_datetime(data.get("lastPaymentDate")),"raw_data":json.dumps(raw,ensure_ascii=False)})
                                     if not children: children=[{"id":rid,"name":data.get("name","Student"),"className":data.get("className",data.get("class","")),"batchId":data.get("batchId"),"isActive":True}]
                                     for child in children:
                                         if not isinstance(child,dict): continue
@@ -127,7 +138,7 @@ def main():
                                         if existing_child and int(existing_child["family_id"]) != rid:
                                             warnings.append(f"{rec['document_path']}: child ID {cid} already belongs to another family; archived only")
                                             continue
-                                        execute_upsert(cur,"student_children",{"id":cid,"family_id":rid,"name":str(child.get("name","")),"class_name":str(child.get("className",child.get("class_name",""))),"batch_id":positive_fk(cur,"batches",child.get("batchId",child.get("batch_id",data.get("batchId")))),"is_active":int(bool(child.get("isActive",child.get("is_active",True)))),"raw_data":json.dumps(child,ensure_ascii=False)})
+                                        execute_upsert(cur,"student_children",{"id":cid,"family_id":rid,"name":str(child.get("name","")),"class_name":str(child.get("className",child.get("class_name",""))),"batch_id":positive_fk(cur,"batches",child.get("batchId",child.get("batch_id",data.get("batchId")))),"is_active":int(as_bool(child.get("isActive",child.get("is_active",True)), True)),"raw_data":json.dumps(child,ensure_ascii=False)})
                                 else: warnings.append(f"{rec['document_path']}: non-numeric student id, archived only")
                             elif key == "fees":
                                 rid=numeric_id(doc_id,data); student=int(data.get("studentId",0) or 0)
