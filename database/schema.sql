@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS enquiries (
  CONSTRAINT fk_enquiries_student FOREIGN KEY(converted_to_student_id) REFERENCES students(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS attendance_sessions (
- id VARCHAR(100) NOT NULL PRIMARY KEY, batch_id BIGINT NULL, batch_name VARCHAR(160) NOT NULL DEFAULT '',
+ id VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL PRIMARY KEY, batch_id BIGINT NULL, batch_name VARCHAR(160) NOT NULL DEFAULT '',
  session_date DATE NOT NULL, present_count INT UNSIGNED NOT NULL DEFAULT 0,
  absent_count INT UNSIGNED NOT NULL DEFAULT 0, total_students INT UNSIGNED NOT NULL DEFAULT 0, raw_data JSON NULL,
  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -96,8 +96,8 @@ CREATE TABLE IF NOT EXISTS action_logs (
  raw_data JSON NULL, INDEX idx_action_logs_date(log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS firestore_document_archive (
- id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, collection_path VARCHAR(500) NOT NULL,
- document_id VARCHAR(191) NOT NULL, parent_document_path VARCHAR(500) NOT NULL DEFAULT '',
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, collection_path VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+ document_id VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, parent_document_path VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '',
  document_json JSON NOT NULL, source_updated_at DATETIME NULL, imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE KEY uq_archive_doc(collection_path(220),document_id,parent_document_path(100))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
