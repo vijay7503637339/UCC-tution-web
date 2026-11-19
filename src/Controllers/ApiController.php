@@ -7,6 +7,7 @@ use Ucc\Core\Database;
 use Ucc\Core\Request;
 use Ucc\Core\Response;
 use Ucc\Services\TuitionService;
+use Ucc\Services\AnalyticsService;
 
 final class ApiController {
  public function handle(string $method,string $path):never {
@@ -15,6 +16,7 @@ final class ApiController {
   if($method==='GET'&&$path==='/api/v1/auth/me')Response::json(['ok'=>true,'data'=>Auth::requireApi()]);
   if($method==='POST'&&$path==='/api/v1/auth/logout')$this->logout();
   if($method==='GET'&&$path==='/api/v1/dashboard'){Auth::requireApi();$month=(string)($_GET['month']??date('Y-m'));Response::json(['ok'=>true,'data'=>TuitionService::dashboard($month)]);}
+  if($method==='GET'&&$path==='/api/v1/analytics'){Auth::requireApi();$month=(string)($_GET['month']??date('Y-m'));Response::json(['ok'=>true,'data'=>AnalyticsService::overview($month)]);}
   if($method==='GET'&&$path==='/api/v1/reminders'){Auth::requireApi();$month=(string)($_GET['month']??date('Y-m'));Response::json(['ok'=>true,'data'=>TuitionService::reminders($month)]);}
   if($method==='GET'&&$path==='/api/v1/reports/fees'){Auth::requireApi();$month=(string)($_GET['month']??date('Y-m'));Response::json(['ok'=>true,'data'=>TuitionService::dashboard($month)]);}
   if($method==='GET'&&$path==='/api/v1/attendance/students'){Auth::requireApi();$batch=(int)($_GET['batch_id']??0);Response::json(['ok'=>true,'data'=>TuitionService::attendanceStudents($batch)]);}
