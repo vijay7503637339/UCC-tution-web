@@ -11,9 +11,14 @@ spl_autoload_register(static function(string $class): void {
 if(is_file(UCC_ROOT.'/.env')) {
  foreach(file(UCC_ROOT.'/.env', FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
   $line=trim($line); if($line===''||$line[0]==='#'||!str_contains($line,'=')) continue;
-  [$key,$value]=explode('=',$line,2); $_ENV[trim($key)]=trim(trim($value),'"');
+  [$key,$value]=explode('=',$line,2); $_ENV[trim($key)]=trim(trim($value),'\\"');
  }
 }
+$appUrlPath=(string)(parse_url((string)($_ENV['APP_URL']??''),PHP_URL_PATH)?:'');
+$basePath=(string)($_ENV['APP_BASE_PATH']??$appUrlPath);
+$basePath='/'.trim($basePath,'/');
+if($basePath==='/')$basePath='';
+define('UCC_BASE_PATH',$basePath);
 date_default_timezone_set('Asia/Kolkata');
 error_reporting(E_ALL);
 ini_set('display_errors',($_ENV['APP_DEBUG']??'false')==='true'?'1':'0');
