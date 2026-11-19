@@ -54,10 +54,10 @@ def iter_collection_documents(collection_ref, page_size: int = PAGE_SIZE):
         if len(docs) < page_size:
             break
 
-def export_collection(db, collection_ref, writer, summary):
+def export_collection(db, collection_ref, writer, summary, page_size: int):
     path = collection_path(collection_ref)
     print(f"Exporting collection: {path}", file=sys.stderr, flush=True)
-    for snapshot in iter_collection_documents(collection_ref):
+    for snapshot in iter_collection_documents(collection_ref, page_size=page_size):
         parent_document = snapshot.reference.parent.parent
         record = {
             "collection_path": path,
@@ -69,7 +69,7 @@ def export_collection(db, collection_ref, writer, summary):
         writer.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
         summary[path] = summary.get(path, 0) + 1
         for child_collection in snapshot.reference.collections():
-            export_collection(db, child_collection, writer, summary)
+            export_collection(db, child_collection, writer, summary, page_size)
 
 def main():
     parser = argparse.ArgumentParser(description="Export all Firestore root collections and nested subcollections to JSONL.")
@@ -98,7 +98,7 @@ def main():
     try:
         with output.open("w", encoding="utf-8") as writer:
             for collection in db.collections():
-                export_collection(db, collection, writer, summary)
+                export_collection(db, collection, writer, summary, args.page_size)
                 writer.flush()
     except Exception as exc:
         print(f"Export failed; partial file retained at {output}: {exc}", file=sys.stderr)
