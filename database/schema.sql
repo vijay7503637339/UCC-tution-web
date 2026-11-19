@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS action_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS firestore_document_archive (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, collection_path VARCHAR(500) NOT NULL,
- document_id VARCHAR(191) NOT NULL, parent_document_path VARCHAR(500) NULL,
+ document_id VARCHAR(191) NOT NULL, parent_document_path VARCHAR(500) NOT NULL DEFAULT '',
  document_json JSON NOT NULL, source_updated_at DATETIME NULL, imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE KEY uq_archive_doc(collection_path(220),document_id,parent_document_path(100))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
