@@ -168,8 +168,8 @@ final class WebController {
   } elseif($key==='fees'){
    $body.=$this->selectHtml('student_id','Student',TuitionService::all('students'),$v('student_id'),true);
    $body.=H::field('amount','Amount received (INR)',$v('amount'),'number',['step'=>'0.01','min'=>'0.01','required'=>'required']);
-   $body.=H::field('fee_month','Fee for month',$v('fee_month',date('Y-m-01')),'month');
-   $body.=H::field('paid_on','Payment date',$v('paid_on',date('Y-m-d')),'date');
+   $body.=H::field('fee_month','Fee for month',substr((string)$v('fee_month',date('Y-m-01')),0,7),'month');
+   $body.=H::field('paid_on','Payment date',substr((string)$v('paid_on',date('Y-m-d')),0,10),'date');
    $body.=$this->selectSimple('method','Payment method',['Cash'=>'Cash','UPI'=>'UPI','Bank Transfer'=>'Bank Transfer','Card'=>'Card','Other'=>'Other'],$v('method','Cash'));
    $body.='<label class="field wide"><span>Note</span><textarea name="note" rows="3">'.H::e($v('note')).'</textarea></label>';
   } elseif($key==='enquiries'){
@@ -267,7 +267,7 @@ final class WebController {
  }
  private function assistant():never {
   $month=$this->monthParam();$d=TuitionService::dashboard($month);$question=trim((string)($_POST['question']??''));$answer='';
-  if($_SERVER['REQUEST_METHOD']==='POST'){H::verifyCsrf();$q=mb_strtolower($question);$answer=match(true){
+  if($_SERVER['REQUEST_METHOD']==='POST'){H::verifyCsrf();$q=strtolower($question);$answer=match(true){
    str_contains($q,'pending')||str_contains($q,'बाकी')=>'Selected month pending fees are '.H::money($d['pending']).', with '.(int)$d['unpaid_count'].' unpaid and '.(int)$d['partial_count'].' partially paid students.',
    str_contains($q,'overdue')||str_contains($q,'लेट')=>'Overdue balance is '.H::money($d['overdue']).' across '.(int)$d['overdue_count'].' students.',
    str_contains($q,'collection')||str_contains($q,'collected')||str_contains($q,'जमा')=>'Collected for the selected fee month: '.H::money($d['collected_for_month']).'. Payments received during the calendar month: '.H::money($d['received_during_month']).'.',
