@@ -52,6 +52,13 @@ def numeric_id(document_id, data):
     try: return int(raw)
     except (TypeError, ValueError): return None
 
+def positive_fk(cur, table, value):
+    try: candidate = int(value)
+    except (TypeError, ValueError): return None
+    if candidate <= 0: return None
+    cur.execute(f"SELECT id FROM {table} WHERE id=%s LIMIT 1", (candidate,))
+    return candidate if cur.fetchone() else None
+
 def execute_upsert(cur, table, data):
     cols = list(data.keys())
     col_sql = ",".join(cols)
@@ -102,14 +109,14 @@ def main():
                                 else: warnings.append(f"{rec['document_path']}: non-numeric teacher id, archived only")
                             elif key == "batches":
                                 rid=numeric_id(doc_id,data)
-                                if rid is not None: execute_upsert(cur,"batches",{"id":rid,"name":str(data.get("name","")),"subject":str(data.get("subject","")),"schedule":str(data.get("schedule","")),"teacher_id":data.get("teacherId"),"raw_data":json.dumps(raw,ensure_ascii=False)})
+                                if rid is not None: execute_upsert(cur,"batches",{"id":rid,"name":str(data.get("name","")),"subject":str(data.get("subject","")),"schedule":str(data.get("schedule","")),"teacher_id":positive_fk(cur,"teachers",data.get("teacherId")),"raw_data":json.dumps(raw,ensure_ascii=False)})
                                 else: warnings.append(f"{rec['document_path']}: non-numeric batch id, archived only")
                             elif key == "students":
                                 rid=numeric_id(doc_id,data)
                                 if rid is not None:
                                     joined=as_date(data.get("joinedOn"),date.today())
                                     children=data.get("children") if isinstance(data.get("children"),list) else []
-                                    execute_upsert(cur,"students",{"id":rid,"name":str(data.get("name","")),"class_name":str(data.get("className",data.get("class",""))),"guardian_phone":str(data.get("guardianPhone",data.get("phone",""))),"batch_id":data.get("batchId"),"teacher_id":data.get("teacherId"),"monthly_fee":float(data.get("monthlyFee",0) or 0),"due_day":max(1,min(31,int(data.get("dueDay",10) or 10))),"joined_on":joined,"is_fees_advance":int(bool(data.get("isFeeAdvance",data.get("isFeesAdvance",True)))),"status":"inactive" if data.get("status")=="inactive" else "active","last_reminder":as_datetime(data.get("lastReminder")),"last_payment_date":as_datetime(data.get("lastPaymentDate")),"raw_data":json.dumps(raw,ensure_ascii=False)})
+                                    execute_upsert(cur,"students",{"id":rid,"name":str(data.get("name","")),"class_name":str(data.get("className",data.get("class",""))),"guardian_phone":str(data.get("guardianPhone",data.get("phone",""))),"batch_id":positive_fk(cur,"batches",data.get("batchId")),"teacher_id":positive_fk(cur,"teachers",data.get("teacherId")),"monthly_fee":float(data.get("monthlyFee",0) or 0),"due_day":max(1,min(31,int(data.get("dueDay",10) or 10))),"joined_on":joined,"is_fees_advance":int(bool(data.get("isFeeAdvance",data.get("isFeesAdvance",True)))),"status":"inactive" if data.get("status")=="inactive" else "active","last_reminder":as_datetime(data.get("lastReminder")),"last_payment_date":as_datetime(data.get("lastPaymentDate")),"raw_data":json.dumps(raw,ensure_ascii=False)})
                                     if not children: children=[{"id":rid,"name":data.get("name","Student"),"className":data.get("className",data.get("class","")),"batchId":data.get("batchId"),"isActive":True}]
                                     for child in children:
                                         if not isinstance(child,dict): continue
@@ -119,7 +126,7 @@ def main():
                                         if existing_child and int(existing_child["family_id"]) != rid:
                                             warnings.append(f"{rec['document_path']}: child ID {cid} already belongs to another family; archived only")
                                             continue
-                                        execute_upsert(cur,"student_children",{"id":cid,"family_id":rid,"name":str(child.get("name","")),"class_name":str(child.get("className",child.get("class_name",""))),"batch_id":child.get("batchId",child.get("batch_id",data.get("batchId"))),"is_active":int(bool(child.get("isActive",child.get("is_active",True)))),"raw_data":json.dumps(child,ensure_ascii=False)})
+                                        execute_upsert(cur,"student_children",{"id":cid,"family_id":rid,"name":str(child.get("name","")),"class_name":str(child.get("className",child.get("class_name",""))),"batch_id":positive_fk(cur,"batches",child.get("batchId",child.get("batch_id",data.get("batchId")))),"is_active":int(bool(child.get("isActive",child.get("is_active",True)))),"raw_data":json.dumps(child,ensure_ascii=False)})
                                 else: warnings.append(f"{rec['document_path']}: non-numeric student id, archived only")
                             elif key == "fees":
                                 rid=numeric_id(doc_id,data); student=int(data.get("studentId",0) or 0)
@@ -129,7 +136,7 @@ def main():
                             elif key == "enquiries":
                                 rid=numeric_id(doc_id,data)
                                 if rid is not None:
-                                    execute_upsert(cur,"enquiries",{"id":rid,"student_name":str(data.get("studentName","")),"class_name":str(data.get("className",data.get("class",""))),"parent_name":str(data.get("parentName","")),"phone":str(data.get("phone",data.get("parentMobile",""))),"address":str(data.get("address","")),"enquiry_date":as_date(data.get("enquiryDate")),"expected_join_date":as_date(data.get("expectedJoinDate")),"notes":str(data.get("notes","")),"status":str(data.get("status","New")),"source":str(data.get("source","")),"converted_to_student_id":data.get("convertedToStudentId"),"admission_date":as_date(data.get("admissionDate")),"raw_data":json.dumps(raw,ensure_ascii=False)})
+                                    execute_upsert(cur,"enquiries",{"id":rid,"student_name":str(data.get("studentName","")),"class_name":str(data.get("className",data.get("class",""))),"parent_name":str(data.get("parentName","")),"phone":str(data.get("phone",data.get("parentMobile",""))),"address":str(data.get("address","")),"enquiry_date":as_date(data.get("enquiryDate")),"expected_join_date":as_date(data.get("expectedJoinDate")),"notes":str(data.get("notes","")),"status":str(data.get("status","New")),"source":str(data.get("source","")),"converted_to_student_id":positive_fk(cur,"students",data.get("convertedToStudentId")),"admission_date":as_date(data.get("admissionDate")),"raw_data":json.dumps(raw,ensure_ascii=False)})
                             elif key == "attendance":
                                 bid=int(data.get("batchId",0) or 0); raw_att=data.get("attendance",[]); recs={}
                                 if isinstance(raw_att,dict): recs={str(k):v for k,v in raw_att.items()}
@@ -139,7 +146,7 @@ def main():
                                 session_date=as_date(data.get("date"),date.today())
                                 present=int(data.get("presentCount",sum(1 for v in recs.values() if v=="present")) or 0)
                                 absent=int(data.get("absentCount",sum(1 for v in recs.values() if v=="absent")) or 0)
-                                execute_upsert(cur,"attendance_sessions",{"id":doc_id,"batch_id":bid or None,"batch_name":str(data.get("batchName","")),"session_date":session_date,"present_count":present,"absent_count":absent,"total_students":int(data.get("totalStudents",len(recs)) or 0),"raw_data":json.dumps(raw,ensure_ascii=False)})
+                                execute_upsert(cur,"attendance_sessions",{"id":doc_id,"batch_id":positive_fk(cur,"batches",bid),"batch_name":str(data.get("batchName","")),"session_date":session_date,"present_count":present,"absent_count":absent,"total_students":int(data.get("totalStudents",len(recs)) or 0),"raw_data":json.dumps(raw,ensure_ascii=False)})
                                 cur.execute("DELETE FROM attendance_records WHERE session_id=%s",(doc_id,))
                                 for student_id,status in recs.items():
                                     if status in ("present","absent","leave"):
