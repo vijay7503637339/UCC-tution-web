@@ -44,7 +44,7 @@ def export_collection(db, collection_ref, writer, summary):
             "parent_document_path": parent_document.path if parent_document is not None else None,
             "data": encode(snapshot.to_dict() or {}),
         }
-        writer.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\\n")
+        writer.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
         summary[path] = summary.get(path, 0) + 1
         for child_collection in snapshot.reference.collections():
             export_collection(db, child_collection, writer, summary)
