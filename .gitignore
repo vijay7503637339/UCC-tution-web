@@ -11,3 +11,8 @@ firestore-exports/
 service-account*.json
 firebase-admin*.json
 .DS_Store
+
+.venv/
+__pycache__/
+*.py[cod]
+/migration/exports/
