@@ -127,6 +127,7 @@ Base path: /api/v1
 - POST /auth/login – email/password; returns a bearer token.
 - GET /auth/me and POST /auth/logout.
 - GET /dashboard?month=YYYY-MM.
+- GET /analytics?month=YYYY-MM.
 - GET /reminders?month=YYYY-MM.
 - GET /reports/fees?month=YYYY-MM.
 - CRUD endpoints for students, batches, teachers, fees, enquiries, attendance, expenses, and action-logs.
