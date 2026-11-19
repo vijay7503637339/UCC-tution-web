@@ -6,6 +6,7 @@ final class Auth {
  private static ?array $issuedToken=null;
  public static function bootSession():void {
   if(session_status()===PHP_SESSION_ACTIVE)return;
+  ini_set('session.use_strict_mode','1');
   $secure=(!empty($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off');
   session_name('ucc_web_session');
   session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>$secure,'httponly'=>true,'samesite'=>'Lax']);
