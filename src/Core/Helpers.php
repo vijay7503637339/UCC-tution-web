@@ -19,6 +19,11 @@ final class Helpers {
   if(!$date)return '—';
   $ts=strtotime($date);return $ts?date('d M Y',$ts):'—';
  }
+ public static function dateTime(?string $dateTime):string {
+  if(!$dateTime)return '—';
+  try{$value=new \\DateTimeImmutable($dateTime,new \\DateTimeZone('Asia/Kolkata'));return $value->setTimezone(new \\DateTimeZone('Asia/Kolkata'))->format('d M Y, h:i A');}
+  catch(\\Throwable){return '—';}
+ }
  public static function field(string $name,string $label,mixed $value='',string $type='text',array $attrs=[]):string {
   $attr='';foreach($attrs as $k=>$v)$attr.=' '.$k.'="'.self::e($v).'"';
   return '<label class="field"><span>'.self::e($label).'</span><input type="'.self::e($type).'" name="'.self::e($name).'" value="'.self::e($value).'"'.$attr.'></label>';
