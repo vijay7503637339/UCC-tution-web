@@ -20,6 +20,7 @@ final class WebController {
   if($path==='/receiving'&&$method==='GET')$this->receivingDetail(null);
   if(preg_match('#^/receiving/(\\d{4}-\\d{2}-\\d{2})$#',$path,$receiving)&&$method==='GET')$this->receivingDetail($receiving[1]);
   if(preg_match('#^/students/([0-9]+)$#',$path,$profile)&&$method==='GET')$this->studentProfile((int)$profile[1]);
+  if(preg_match('#^/batches/([0-9]+)/students$#',$path,$batchStudents)&&$method==='GET')$this->batchStudents((int)$batchStudents[1]);
   if(preg_match('#^/enquiries/([0-9]+)/convert$#',$path,$conversion))$this->convertEnquiry((int)$conversion[1],$method);
   if($path==='/attendance')$this->attendance($method);
   if($path==='/reports')$this->reports();
@@ -119,30 +120,117 @@ final class WebController {
   Response::html($this->layout('Receiving details',$body));
  }
  private function resourceList(string $key):never {
-  $filters=$_GET;$rows=TuitionService::all($key,$filters);$title=self::TITLES[$key];$body='<div class="toolbar"><form method="get" class="search-form"><input type="search" name="q" value="'.H::e($filters['q']??'').'" placeholder="Search '.H::e(strtolower($title)).'"><button class="btn secondary">Search</button></form>';
+  $filters=$_GET;$rows=TuitionService::all($key,$filters);$title=self::TITLES[$key];
+  $body='<form method="get" class="resource-filter-form"><div class="resource-filter-main"><label class="field"><span>Search</span><input type="search" name="q" value="'.H::e($filters['q']??'').'" placeholder="Search '.H::e(strtolower($title)).'"></label><div class="filter-actions"><button class="btn secondary">Search / Apply</button><a class="btn ghost" href="/'.$key.'">Reset</a>';
   if($key!=='action-logs')$body.='<a class="btn primary" href="/'.$key.'/new">+ Add '.rtrim($title,'s').'</a>';
+  $body.='</div></div><details class="advanced-filter"><summary>Advanced filters</summary><div class="filter-grid">'.$this->resourceFilterFields($key,$filters).'</div><div class="filter-actions"><button class="btn secondary">Apply filters</button><a class="btn ghost" href="/'.$key.'">Clear all</a></div></details></form>';
+  $summary=$this->resourceSummary($key,$rows);
+  $body.='<div class="grid stats three section resource-summary">';
+  foreach($summary as $card)$body.='<article class="stat-card"><div class="stat-top"><span>'.H::e($card[0]).'</span></div><strong>'.H::e($card[1]).'</strong><small>'.H::e($card[2]).'</small></article>';
   $body.='</div>';
   $headers=match($key){
-   'students'=>['Name','Class','Guardian phone','Batch','Monthly fee','Due day','Status','Actions'],
-   'batches'=>['Batch','Subject','Schedule','Teacher','Actions'],
-   'teachers'=>['Teacher','Subject','Phone','Actions'],
+   'students'=>['Student / Family','Class','Guardian phone','Batch','Monthly fee','Students','Due day','Status','Actions'],
+   'batches'=>['Batch','Subject','Schedule','Teacher','Students','Actions'],
+   'teachers'=>['Teacher','Subject','Phone','Batches','Actions'],
    'fees'=>['Receipt ID','Student','Fee month','Paid on','Amount','Method','Actions'],
    'enquiries'=>['Student','Parent','Phone','Class','Status','Expected join','Actions'],
    'expenses'=>['Date','Description','Category','Amount','Actions'],
    default=>['Date','Message','Type']
   };
   $body.='<div class="table-wrap"><table><thead><tr>';foreach($headers as $h)$body.='<th>'.H::e($h).'</th>';$body.='</tr></thead><tbody>';
-  if(!$rows)$body.='<tr><td class="empty" colspan="'.count($headers).'">No records found. Add your first record to get started.</td></tr>';
+  if(!$rows)$body.='<tr><td class="empty" colspan="'.count($headers).'">No records found for the selected filters.</td></tr>';
   foreach($rows as $row)$body.='<tr>'.$this->resourceCells($key,$row).'</tr>';
-  $body.='</tbody></table></div><p class="muted tiny">'.count($rows).' records shown · Data is stored only in this web project MySQL database.</p>';
+  $body.='</tbody></table></div><p class="muted tiny">'.number_format(count($rows)).' matching records shown · Summary values above use the current filters.</p>';
   Response::html($this->layout($title,$body));
+ }
+ private function resourceSummary(string $key,array $rows):array {
+  $count=count($rows);
+  if($key==='students'){
+   $students=0;$monthly=0.0;$families=0;
+   foreach($rows as $r){$students+=count(array_filter($r['children']??[],static fn($c)=>(int)($c['is_active']??0)===1));if(($r['status']??'')==='active'){$monthly+=(float)$r['monthly_fee'];$families++;}}
+   return [['Student profiles',number_format($students),'Active child profiles in the filtered families'],['Families',number_format($families),number_format($count).' matching family records'],['Potential monthly fees',H::money($monthly),'Monthly fee total for active families']];
+  }
+  if($key==='batches'){
+   $students=array_sum(array_map(static fn($r)=>(int)($r['student_count']??0),$rows));$empty=count(array_filter($rows,static fn($r)=>(int)($r['student_count']??0)===0));
+   return [['Batches',number_format($count),'Matching batches'],['Assigned students',number_format($students),'Active students across these batches'],['Empty batches',number_format($empty),'No active students assigned']];
+  }
+  if($key==='teachers'){
+   $batches=array_sum(array_map(static fn($r)=>(int)($r['batch_count']??0),$rows));
+   return [['Teachers',number_format($count),'Matching teacher records'],['Assigned batches',number_format($batches),'Batches assigned to these teachers'],['Unassigned teachers',number_format(count(array_filter($rows,static fn($r)=>(int)($r['batch_count']??0)===0))),'No batches currently assigned']];
+  }
+  if($key==='fees'){
+   $amount=array_sum(array_map(static fn($r)=>(float)$r['amount'],$rows));
+   return [['Transactions',number_format($count),'Matching fee receipts'],['Total fees received',H::money($amount),'Sum of the filtered receipts'],['Average receipt',H::money($count?$amount/$count:0),'Average amount per transaction']];
+  }
+  if($key==='enquiries'){
+   $converted=count(array_filter($rows,static fn($r)=>!empty($r['converted_to_student_id'])));$open=count(array_filter($rows,static fn($r)=>!in_array(strtolower((string)$r['status']),['confirmed','rejected'],true)));
+   return [['Enquiries',number_format($count),'Matching enquiry records'],['Converted admissions',number_format($converted),'Successfully converted to students'],['Open follow-ups',number_format($open),'Not confirmed or rejected']];
+  }
+  if($key==='expenses'){
+   $amount=array_sum(array_map(static fn($r)=>(float)$r['amount'],$rows));
+   return [['Expense entries',number_format($count),'Matching expense records'],['Total expenses',H::money($amount),'Sum of the filtered expenses'],['Average expense',H::money($count?$amount/$count:0),'Average per expense entry']];
+  }
+  return [['Activity logs',number_format($count),'Matching activity records'],['Activity types',number_format(count(array_unique(array_map(static fn($r)=>(string)$r['type'],$rows)))),'Distinct activity types'],['Latest activity',$count?H::dateTime((string)$rows[0]['log_date']):'—','Most recent matching log']];
+ }
+ private function resourceFilterFields(string $key,array $filters):string {
+  $html='';$batches=[];foreach(TuitionService::all('batches') as $r)$batches[(string)$r['id']]=$r['name'];
+  $teachers=[];foreach(TuitionService::all('teachers') as $r)$teachers[(string)$r['id']]=$r['name'];
+  if($key==='students'){
+   $html.=$this->filterSelect('status','Student status',['active'=>'Active','inactive'=>'Inactive'],$filters['status']??'');
+   $html.=$this->filterSelect('batch_id','Batch',$batches,$filters['batch_id']??'');
+   $html.=$this->filterSelect('teacher_id','Teacher',$teachers,$filters['teacher_id']??'');
+   $classes=[];foreach(TuitionService::distinctValues('students','class_name') as $v)$classes[$v]=$v;
+   $html.=$this->filterSelect('class_name','Class',$classes,$filters['class_name']??'');
+   $html.=$this->filterInput('joined_from','Admission from',$filters['joined_from']??'','date').$this->filterInput('joined_to','Admission to',$filters['joined_to']??'','date');
+   $html.=$this->filterInput('min_fee','Minimum monthly fee',$filters['min_fee']??'','number').$this->filterInput('max_fee','Maximum monthly fee',$filters['max_fee']??'','number');
+  }elseif($key==='batches'){
+   $html.=$this->filterSelect('teacher_id','Teacher',$teachers,$filters['teacher_id']??'');
+   $html.=$this->filterInput('subject_filter','Subject contains',$filters['subject_filter']??'','text');
+   $html.=$this->filterSelect('has_students','Student assignment',['yes'=>'Has active students','no'=>'No active students'],$filters['has_students']??'');
+  }elseif($key==='teachers'){
+   $html.=$this->filterInput('subject_filter','Subject contains',$filters['subject_filter']??'','text').$this->filterSelect('batch_id','Assigned batch',$batches,$filters['batch_id']??'');
+  }elseif($key==='fees'){
+   $students=[];foreach(TuitionService::all('students',['status'=>'active']) as $r)$students[(string)$r['id']]=$r['name'];
+   $html.=$this->filterInput('month','Fee month',$filters['month']??'','month').$this->filterSelect('student_id','Student / family',$students,$filters['student_id']??'').$this->filterSelect('batch_id','Batch',$batches,$filters['batch_id']??'');
+   $html.=$this->filterSelect('method','Payment method',['Cash'=>'Cash','UPI'=>'UPI','Bank Transfer'=>'Bank Transfer','Card'=>'Card','Other'=>'Other'],$filters['method']??'');
+   $html.=$this->filterInput('paid_from','Received from',$filters['paid_from']??'','date').$this->filterInput('paid_to','Received to',$filters['paid_to']??'','date');
+   $html.=$this->filterInput('min_amount','Minimum amount',$filters['min_amount']??'','number').$this->filterInput('max_amount','Maximum amount',$filters['max_amount']??'','number');
+  }elseif($key==='enquiries'){
+   $classes=[];foreach(TuitionService::distinctValues('enquiries','class_name') as $v)$classes[$v]=$v;$sources=[];foreach(TuitionService::distinctValues('enquiries','source') as $v)$sources[$v]=$v;$statuses=[];foreach(TuitionService::distinctValues('enquiries','status') as $v)$statuses[$v]=$v;
+   $html.=$this->filterSelect('status','Enquiry status',$statuses,$filters['status']??'').$this->filterSelect('class_name','Class',$classes,$filters['class_name']??'').$this->filterSelect('source','Lead source',$sources,$filters['source']??'').$this->filterSelect('converted','Admission converted',['yes'=>'Converted','no'=>'Not converted'],$filters['converted']??'');
+   $html.=$this->filterInput('date_from','Enquiry from',$filters['date_from']??'','date').$this->filterInput('date_to','Enquiry to',$filters['date_to']??'','date');
+  }elseif($key==='expenses'){
+   $categories=[];foreach(TuitionService::distinctValues('expenses','category') as $v)$categories[$v]=$v;
+   $html.=$this->filterSelect('category','Expense category',$categories,$filters['category']??'').$this->filterInput('date_from','Expense from',$filters['date_from']??'','date').$this->filterInput('date_to','Expense to',$filters['date_to']??'','date');
+   $html.=$this->filterInput('min_amount','Minimum amount',$filters['min_amount']??'','number').$this->filterInput('max_amount','Maximum amount',$filters['max_amount']??'','number');
+  }elseif($key==='action-logs'){
+   $types=[];foreach(TuitionService::distinctValues('action-logs','type') as $v)$types[$v]=$v;
+   $html.=$this->filterSelect('type','Activity type',$types,$filters['type']??'').$this->filterInput('date_from','From date',$filters['date_from']??'','date').$this->filterInput('date_to','To date',$filters['date_to']??'','date');
+  }
+  return $html;
+ }
+ private function filterInput(string $name,string $label,mixed $value,string $type='text'):string {
+  return '<label class="field filter-field"><span>'.H::e($label).'</span><input type="'.H::e($type).'" name="'.H::e($name).'" value="'.H::e((string)$value).'"></label>';
+ }
+ private function filterSelect(string $name,string $label,array $options,mixed $selected):string {
+  $html='<label class="field filter-field"><span>'.H::e($label).'</span><select name="'.H::e($name).'"><option value="">All</option>';
+  foreach($options as $value=>$text)$html.='<option value="'.H::e((string)$value).'"'.((string)$selected===(string)$value?' selected':'').'>'.H::e((string)$text).'</option>';
+  return $html.'</select></label>';
+ }
+ private function batchStudents(int $id):never {
+  $batch=TuitionService::find('batches',$id);if(!$batch)Response::html($this->layout('Batch students','<div class="panel">Batch not found.</div>'),404);
+  $rows=TuitionService::batchStudents($id);$total=count($rows);$families=count(array_unique(array_map(static fn($r)=>(int)$r['family_id'],$rows)));$fee=0.0;foreach($rows as $r)$fee+=(float)$r['monthly_fee'];
+  $body='<div class="toolbar"><a class="btn secondary" href="/batches">← Back to batches</a><a class="btn primary" href="/students?batch_id='.$id.'">View family records</a></div><div class="panel section"><div class="panel-head"><div><p class="eyebrow">BATCH STUDENT REGISTER</p><h2>'.H::e($batch['name']).'</h2><p class="muted">'.H::e($batch['subject']).' · '.H::e($batch['schedule']).'</p></div><span class="pill blue">'.number_format($total).' students</span></div></div><div class="grid stats three section"><article class="stat-card"><span>Students</span><strong>'.number_format($total).'</strong><small>Active child profiles in this batch</small></article><article class="stat-card"><span>Families</span><strong>'.number_format($families).'</strong><small>Unique parent / family records</small></article><article class="stat-card"><span>Linked monthly fee</span><strong>'.H::money($fee).'</strong><small>Family monthly fee counted once per assigned student</small></article></div><section class="panel section"><div class="panel-head"><h3>Student list</h3><span class="muted">'.number_format($total).' active students</span></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Class</th><th>Parent / family</th><th>Guardian phone</th><th>Monthly fee</th><th>Profile</th></tr></thead><tbody>';
+  foreach($rows as $r)$body.='<tr><td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['family_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::money($r['monthly_fee']).'</td><td><a href="/students/'.(int)$r['family_id'].'">Open family</a></td></tr>';
+  if(!$rows)$body.='<tr><td colspan="6" class="empty">No active students are assigned to this batch.</td></tr>';
+  $body.='</tbody></table></div></section>';Response::html($this->layout('Batch students',$body));
  }
  private function resourceCells(string $key,array $r):string {
   $actions=static fn($id)=>'<td class="actions"><a href="/'.$key.'/'.rawurlencode((string)$id).'/edit">Edit</a><form method="post" action="/'.$key.'/'.rawurlencode((string)$id).'/delete" onsubmit="return confirm(\'Delete this record?\')">'.self::csrfStatic().'<button class="link danger">Delete</button></form></td>';
   return match($key){
-   'students'=>'<td><strong><a href="/students/'.(int)$r['id'].'">'.H::e($r['name']).'</a></strong><small class="subline">'.H::e($r['guardian_phone']).'</small></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::e($this->lookupName('batches',$r['batch_id']??null)).'</td><td>'.H::money($r['monthly_fee']).'</td><td>'.H::e($r['due_day']).'</td><td><span class="pill '.($r['status']==='active'?'green':'gray').'">'.H::e(ucfirst($r['status'])).'</span></td>'.$actions($r['id']),
-   'batches'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['schedule']).'</td><td>'.H::e($this->lookupName('teachers',$r['teacher_id']??null)).'</td>'.$actions($r['id']),
-   'teachers'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['phone']).'</td>'.$actions($r['id']),
+   'students'=>'<td><strong><a href="/students/'.(int)$r['id'].'">'.H::e($r['name']).'</a></strong><small class="subline">'.H::e($r['guardian_phone']).'</small></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::e($this->lookupName('batches',$r['batch_id']??null)).'</td><td>'.H::money($r['monthly_fee']).'</td><td>'.number_format(count(array_filter($r['children']??[],static fn($c)=>(int)($c['is_active']??0)===1))).'</td><td>'.H::e($r['due_day']).'</td><td><span class="pill '.($r['status']==='active'?'green':'gray').'">'.H::e(ucfirst($r['status'])).'</span></td>'.$actions($r['id']),
+   'batches'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['schedule']).'</td><td>'.H::e($this->lookupName('teachers',$r['teacher_id']??null)).'</td><td><a class="count-link" href="/batches/'.(int)$r['id'].'/students"><strong>'.number_format((int)($r['student_count']??0)).'</strong><small>View students</small></a></td>'.$actions($r['id']),
+   'teachers'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['phone']).'</td><td><a href="/batches?teacher_id='.(int)$r['id'].'">'.number_format((int)($r['batch_count']??0)).' batches</a></td>'.$actions($r['id']),
    'fees'=>'<td>#'.H::e($r['id']).'</td><td>'.H::e($this->lookupName('students',$r['student_id'])).'</td><td>'.H::date($r['fee_month']).'</td><td>'.$this->paymentDateLink((string)$r['paid_on']).'</td><td><strong>'.H::money($r['amount']).'</strong></td><td>'.H::e($r['method']).'</td>'.$actions($r['id']),
    'enquiries'=>'<td><strong>'.H::e($r['student_name']).'</strong></td><td>'.H::e($r['parent_name']).'</td><td>'.H::e($r['phone']).'</td><td>'.H::e($r['class_name']).'</td><td><span class="pill blue">'.H::e($r['status']).'</span></td><td>'.H::date($r['expected_join_date']).'</td><td class="actions">'.(empty($r['converted_to_student_id'])?'<a href="/enquiries/'.(int)$r['id'].'/convert">Convert</a>':'<a href="/students/'.(int)$r['converted_to_student_id'].'">Student</a>').'<a href="/enquiries/'.(int)$r['id'].'/edit">Edit</a><form method="post" action="/enquiries/'.(int)$r['id'].'/delete">'.self::csrfStatic().'<button class="link danger">Delete</button></form></td>',
    'expenses'=>'<td>'.H::date($r['expense_date']).'</td><td>'.H::e($r['description']).'</td><td>'.H::e($r['category']).'</td><td><strong>'.H::money($r['amount']).'</strong></td>'.$actions($r['id']),
