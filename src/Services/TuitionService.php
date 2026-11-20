@@ -49,7 +49,7 @@ final class TuitionService {
    if(in_array(($filters['status']??''),['active','inactive'],true)){$sql.=' AND status=?';$params[]=$filters['status'];}
    if(!empty($filters['batch_id'])){$sql.=' AND (EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=students.id AND COALESCE(c.batch_id,students.batch_id)=? AND c.is_active=1) OR (NOT EXISTS(SELECT 1 FROM student_children cx WHERE cx.family_id=students.id) AND students.batch_id=?))';$id=(int)$filters['batch_id'];array_push($params,$id,$id);}
    if(!empty($filters['teacher_id'])){$sql.=' AND teacher_id=?';$params[]=(int)$filters['teacher_id'];}
-   if(!empty($filters['class_name'])){$sql.=' AND (class_name=? OR EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=students.id AND c.class_name=? AND c.is_active=1))';array_push($params,$filters['class_name'],$filters['class_name']);}
+   if(!empty($filters['class_name'])){$sql.=' AND (EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=students.id AND c.is_active=1 AND COALESCE(NULLIF(c.class_name,\'\'),students.class_name)=?) OR (NOT EXISTS(SELECT 1 FROM student_children cx WHERE cx.family_id=students.id) AND students.class_name=?))';array_push($params,$filters['class_name'],$filters['class_name']);}
    if(!empty($filters['joined_from'])){$sql.=' AND joined_on>=?';$params[]=$filters['joined_from'];}
    if(!empty($filters['joined_to'])){$sql.=' AND joined_on<=?';$params[]=$filters['joined_to'];}
    if(isset($filters['min_fee'])&&$filters['min_fee']!==''){$sql.=' AND monthly_fee>=?';$params[]=(float)$filters['min_fee'];}
@@ -66,7 +66,7 @@ final class TuitionService {
    if(!empty($filters['month'])&&preg_match('/^\d{4}-\d{2}$/',(string)$filters['month'])){$sql.=' AND fee_month=?';$params[]=$filters['month'].'-01';}
    if(!empty($filters['student_id'])){$sql.=' AND student_id=?';$params[]=(int)$filters['student_id'];}
    if(!empty($filters['batch_id'])){$sql.=' AND EXISTS(SELECT 1 FROM students s LEFT JOIN student_children c ON c.family_id=s.id AND c.is_active=1 WHERE s.id=fee_payments.student_id AND COALESCE(c.batch_id,s.batch_id)=?)';$params[]=(int)$filters['batch_id'];}
-   if(!empty($filters['class_name'])){$sql.=' AND EXISTS(SELECT 1 FROM students s LEFT JOIN student_children c ON c.family_id=s.id AND c.is_active=1 WHERE s.id=fee_payments.student_id AND (s.class_name=? OR c.class_name=?))';$class=(string)$filters['class_name'];array_push($params,$class,$class);}
+   if(!empty($filters['class_name'])){$sql.=' AND EXISTS(SELECT 1 FROM students s LEFT JOIN student_children c ON c.family_id=s.id AND c.is_active=1 WHERE s.id=fee_payments.student_id AND (COALESCE(NULLIF(c.class_name,\'\'),s.class_name)=?))';$params[]=(string)$filters['class_name'];}
    if(!empty($filters['method'])){$sql.=' AND method=?';$params[]=$filters['method'];}
    if(isset($filters['min_amount'])&&$filters['min_amount']!==''){$sql.=' AND amount>=?';$params[]=(float)$filters['min_amount'];}
    if(isset($filters['max_amount'])&&$filters['max_amount']!==''){$sql.=' AND amount<=?';$params[]=(float)$filters['max_amount'];}
@@ -177,7 +177,7 @@ final class TuitionService {
    FROM fee_payments p LEFT JOIN students s ON s.id=p.student_id
    WHERE p.paid_on>=? AND p.paid_on<?';$params=[$from,$until];
   if(!empty($filters['batch_id'])){$sql.=' AND (EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=s.id AND COALESCE(c.batch_id,s.batch_id)=? AND c.is_active=1) OR (NOT EXISTS(SELECT 1 FROM student_children cx WHERE cx.family_id=s.id) AND s.batch_id=?))';$id=(int)$filters['batch_id'];array_push($params,$id,$id);}
-  if(!empty($filters['class_name'])){$sql.=' AND (s.class_name=? OR EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=s.id AND c.class_name=? AND c.is_active=1))';$class=(string)$filters['class_name'];array_push($params,$class,$class);}
+  if(!empty($filters['class_name'])){$sql.=' AND EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=s.id AND c.is_active=1 AND COALESCE(NULLIF(c.class_name,\'\'),s.class_name)=?)';$params[]=(string)$filters['class_name'];}
   $sql.=' ORDER BY p.paid_on DESC,p.id DESC';
   $q=Database::connection()->prepare($sql);$q->execute($params);$out=[];
   foreach($q->fetchAll(PDO::FETCH_ASSOC) as $row){
