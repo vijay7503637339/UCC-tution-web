@@ -134,20 +134,108 @@ final class TuitionService {
   $q=Database::connection()->prepare("SELECT c.id,c.name,c.class_name,c.family_id FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=? AND c.is_active=1 AND s.status='active' ORDER BY c.name");$q->execute([$batchId]);return $q->fetchAll(PDO::FETCH_ASSOC);
  }
  public static function dashboard(string $month):array {
-  if(!preg_match('/^\d{4}-\d{2}$/',$month))$month=date('Y-m');$start=$month.'-01';$end=date('Y-m-d',strtotime($start.' +1 month'));$db=Database::connection();
-  $q=$db->prepare("SELECT s.*,COALESCE(p.paid,0) paid FROM students s LEFT JOIN (SELECT student_id,SUM(amount) paid FROM fee_payments WHERE fee_month=? GROUP BY student_id) p ON p.student_id=s.id WHERE s.status='active' AND s.joined_on<?");
-  $q->execute([$start,$end]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);$expected=0.0;$collected=0.0;$pending=0.0;$overdue=0.0;$overdueCount=0;$paidCount=0;$partialCount=0;$unpaidCount=0;$new=0;$activeChildren=0;$today=new DateTimeImmutable('today');
+  if(!preg_match('/^\\d{4}-\\d{2}$/',$month))$month=date('Y-m');
+  $start=$month.'-01';
+  $end=(new DateTimeImmutable($start))->modify('+1 month')->format('Y-m-d');
+  $db=Database::connection();
+
+  // A billable family must be active and must contain at least one active child profile.
+  // This prevents inactive/empty families from inflating the selected month's overdue balance.
+  $q=$db->prepare("SELECT s.*,COALESCE(p.paid,0) paid
+   FROM students s
+   LEFT JOIN (
+    SELECT student_id,SUM(amount) paid
+    FROM fee_payments WHERE fee_month=? GROUP BY student_id
+   ) p ON p.student_id=s.id
+   WHERE s.status='active'
+    AND s.joined_on<?
+    AND EXISTS (SELECT 1 FROM student_children c WHERE c.family_id=s.id AND c.is_active=1)");
+  $q->execute([$start,$end]);
+  $rows=$q->fetchAll(PDO::FETCH_ASSOC);
+
+  $expected=0.0;$collected=0.0;$pending=0.0;$overdue=0.0;
+  $overdueCount=0;$paidCount=0;$partialCount=0;$unpaidCount=0;
+  $new=0;$activeChildren=0;$today=new DateTimeImmutable('today');
+
   foreach($rows as $s){
-   $fee=max(0,(float)$s['monthly_fee']);$got=max(0,(float)$s['paid']);$due=max(0,$fee-$got);$expected+=$fee;$collected+=$got;$pending+=$due;
+   $fee=max(0,(float)$s['monthly_fee']);
+   $got=max(0,(float)$s['paid']);
+   $due=max(0,$fee-$got);
+   $expected+=$fee;$collected+=$got;$pending+=$due;
+
    if($due<=0)$paidCount++;elseif($got>0)$partialCount++;else$unpaidCount++;
-   $dueMonth=(int)$s['is_fees_advance']?new DateTimeImmutable($month.'-01'):new DateTimeImmutable($month.'-01 +1 month');$day=min(max(1,(int)$s['due_day']),(int)$dueMonth->format('t'));$dueDate=$dueMonth->setDate((int)$dueMonth->format('Y'),(int)$dueMonth->format('m'),$day);
-   if($due>0&&$today>$dueDate){$overdue+=$due;$overdueCount++;}
-   $children=self::children((int)$s['id']);$count=count(array_filter($children,static fn($c)=>(int)$c['is_active']===1));$activeChildren+=$count;if(substr((string)$s['joined_on'],0,7)===$month)$new+=max(1,$count);
+
+   $dueMonth=(int)$s['is_fees_advance']
+    ?new DateTimeImmutable($month.'-01')
+    :new DateTimeImmutable($month.'-01 +1 month');
+   $day=min(max(1,(int)$s['due_day']),(int)$dueMonth->format('t'));
+   $dueDate=$dueMonth->setDate((int)$dueMonth->format('Y'),(int)$dueMonth->format('m'),$day);
+   $joinedOn=new DateTimeImmutable((string)$s['joined_on']);
+
+   // Do not mark a student overdue if they joined after the fee due date.
+   if($due>0 && $today>$dueDate && $joinedOn<=$dueDate){
+    $overdue+=$due;
+    $overdueCount++;
+   }
+
+   $children=self::children((int)$s['id']);
+   $count=count(array_filter($children,static fn($c)=>(int)$c['is_active']===1));
+   $activeChildren+=$count;
+   if(substr((string)$s['joined_on'],0,7)===$month)$new+=max(1,$count);
   }
-  $q=$db->prepare('SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE paid_on>=? AND paid_on<?');$q->execute([$start,$end]);$received=(float)$q->fetchColumn();
-  $q=$db->prepare('SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date>=? AND expense_date<?');$q->execute([$start,$end]);$expenses=(float)$q->fetchColumn();
-  $q=$db->prepare('SELECT COUNT(*) FROM enquiries WHERE created_at>=? AND created_at<?');$q->execute([$start,$end]);$enquiries=(int)$q->fetchColumn();
-  return ['month'=>$month,'active_students'=>$activeChildren,'student_families'=>count($rows),'new_admissions'=>$new,'expected'=>$expected,'collected_for_month'=>$collected,'received_during_month'=>$received,'pending'=>$pending,'overdue'=>$overdue,'overdue_count'=>$overdueCount,'paid_count'=>$paidCount,'partial_count'=>$partialCount,'unpaid_count'=>$unpaidCount,'expenses'=>$expenses,'net'=>$received-$expenses,'enquiries'=>$enquiries];
+
+  // "Receiving" is based on the actual payment date, not the fee-month allocation.
+  $q=$db->prepare('SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE paid_on>=? AND paid_on<?');
+  $q->execute([$start,$end]);
+  $received=(float)$q->fetchColumn();
+
+  $todayStart=date('Y-m-d');
+  $tomorrow=(new DateTimeImmutable($todayStart))->modify('+1 day')->format('Y-m-d');
+  $q=$db->prepare('SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE paid_on>=? AND paid_on<?');
+  $q->execute([$todayStart,$tomorrow]);
+  $receivedToday=(float)$q->fetchColumn();
+
+  // Aggregate actual cash receipts by payment date for the selected calendar month.
+  $q=$db->prepare('SELECT DATE(paid_on) AS received_on,COUNT(*) AS transactions,COALESCE(SUM(amount),0) AS amount
+   FROM fee_payments WHERE paid_on>=? AND paid_on<?
+   GROUP BY DATE(paid_on)');
+  $q->execute([$start,$end]);
+  $byDay=[];
+  foreach($q->fetchAll(PDO::FETCH_ASSOC) as $row){
+   $byDay[(string)$row['received_on']]=[
+    'amount'=>(float)$row['amount'],
+    'transactions'=>(int)$row['transactions']
+   ];
+  }
+
+  // Show every elapsed day in the selected month, including zero-receipt days.
+  $monthDate=new DateTimeImmutable($start);
+  $daysInMonth=(int)$monthDate->format('t');
+  $currentMonth=date('Y-m');
+  $lastDay=$month===$currentMonth?(int)date('j'):($month<$currentMonth?$daysInMonth:0);
+  $dailyReceiving=[];
+  for($day=$lastDay;$day>=1;$day--){
+   $date=$monthDate->setDate((int)$monthDate->format('Y'),(int)$monthDate->format('m'),$day)->format('Y-m-d');
+   $dailyReceiving[]=[
+    'date'=>$date,
+    'amount'=>(float)($byDay[$date]['amount']??0),
+    'transactions'=>(int)($byDay[$date]['transactions']??0)
+   ];
+  }
+
+  $q=$db->prepare('SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date>=? AND expense_date<?');
+  $q->execute([$start,$end]);$expenses=(float)$q->fetchColumn();
+  $q=$db->prepare('SELECT COUNT(*) FROM enquiries WHERE created_at>=? AND created_at<?');
+  $q->execute([$start,$end]);$enquiries=(int)$q->fetchColumn();
+
+  return [
+   'month'=>$month,'active_students'=>$activeChildren,'student_families'=>count($rows),
+   'new_admissions'=>$new,'expected'=>$expected,'collected_for_month'=>$collected,
+   'received_during_month'=>$received,'received_today'=>$receivedToday,'daily_receiving'=>$dailyReceiving,
+   'pending'=>$pending,'overdue'=>$overdue,'overdue_count'=>$overdueCount,
+   'paid_count'=>$paidCount,'partial_count'=>$partialCount,'unpaid_count'=>$unpaidCount,
+   'expenses'=>$expenses,'net'=>$received-$expenses,'enquiries'=>$enquiries
+  ];
  }
  public static function reminders(string $month):array {
   $students=self::all('students',['status'=>'active']);$payments=self::all('fees',['month'=>$month]);$paid=[];
