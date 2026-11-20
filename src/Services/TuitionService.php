@@ -29,17 +29,88 @@ final class TuitionService {
  }
  public static function all(string $key,array $filters=[]):array {
   if($key==='attendance')return self::attendanceList($filters);
-  $m=self::meta($key);$sql='SELECT * FROM '.$m['table'].' WHERE 1=1';$params=[];
-  if($key==='students'){
-   if(!empty($filters['status'])){$sql.=' AND status=?';$params[]=$filters['status'];}
-   if(!empty($filters['q'])){$sql.=' AND (name LIKE ? OR guardian_phone LIKE ? OR class_name LIKE ?)';$v='%'.trim($filters['q']).'%';array_push($params,$v,$v,$v);}
+  $m=self::meta($key);$table=$m['table'];$sql='SELECT * FROM '.$table.' WHERE 1=1';$params=[];
+  $q=trim((string)($filters['q']??''));
+  if($q!==''){
+   $like='%'.$q.'%';
+   $search=match($key){
+    'students'=>'(name LIKE ? OR guardian_phone LIKE ? OR class_name LIKE ?)',
+    'batches'=>'(name LIKE ? OR subject LIKE ? OR schedule LIKE ?)',
+    'teachers'=>'(name LIKE ? OR subject LIKE ? OR phone LIKE ?)',
+    'fees'=>"(CAST(id AS CHAR) LIKE ? OR method LIKE ? OR note LIKE ? OR EXISTS(SELECT 1 FROM students sx WHERE sx.id=fee_payments.student_id AND sx.name LIKE ?))",
+    'enquiries'=>'(student_name LIKE ? OR parent_name LIKE ? OR phone LIKE ? OR class_name LIKE ?)',
+    'expenses'=>'(description LIKE ? OR category LIKE ?)',
+    'action-logs'=>'(message LIKE ? OR type LIKE ?)',
+    default=>''
+   };
+   if($search!==''){$sql.=' AND '.$search;$count=substr_count($search,'?');for($i=0;$i<$count;$i++)$params[]=$like;}
   }
-  if($key==='fees'&&!empty($filters['month'])){$sql.=' AND fee_month=?';$params[]=$filters['month'].'-01';}
-  if($key==='fees'&&!empty($filters['student_id'])){$sql.=' AND student_id=?';$params[]=(int)$filters['student_id'];}
-  if($key==='enquiries'&&!empty($filters['status'])){$sql.=' AND status=?';$params[]=$filters['status'];}
-  $sql.=' ORDER BY '.$m['order'].' LIMIT 1000';$q=Database::connection()->prepare($sql);$q->execute($params);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
-  if($key==='students')foreach($rows as &$row)$row['children']=self::children((int)$row['id']);unset($row);
-  if($key==='fees')foreach($rows as &$row)$row=self::localizePaymentRow($row);unset($row);
+  if($key==='students'){
+   if(in_array(($filters['status']??''),['active','inactive'],true)){$sql.=' AND status=?';$params[]=$filters['status'];}
+   if(!empty($filters['batch_id'])){$sql.=' AND (batch_id=? OR EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=students.id AND c.batch_id=? AND c.is_active=1))';$id=(int)$filters['batch_id'];array_push($params,$id,$id);}
+   if(!empty($filters['teacher_id'])){$sql.=' AND teacher_id=?';$params[]=(int)$filters['teacher_id'];}
+   if(!empty($filters['class_name'])){$sql.=' AND (class_name=? OR EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=students.id AND c.class_name=? AND c.is_active=1))';array_push($params,$filters['class_name'],$filters['class_name']);}
+   if(!empty($filters['joined_from'])){$sql.=' AND joined_on>=?';$params[]=$filters['joined_from'];}
+   if(!empty($filters['joined_to'])){$sql.=' AND joined_on<=?';$params[]=$filters['joined_to'];}
+   if(isset($filters['min_fee'])&&$filters['min_fee']!==''){$sql.=' AND monthly_fee>=?';$params[]=(float)$filters['min_fee'];}
+   if(isset($filters['max_fee'])&&$filters['max_fee']!==''){$sql.=' AND monthly_fee<=?';$params[]=(float)$filters['max_fee'];}
+  }elseif($key==='batches'){
+   if(!empty($filters['teacher_id'])){$sql.=' AND teacher_id=?';$params[]=(int)$filters['teacher_id'];}
+   if(!empty($filters['subject_filter'])){$sql.=' AND subject LIKE ?';$params[]='%'.trim((string)$filters['subject_filter']).'%';}
+   if(($filters['has_students']??'')==='yes')$sql.=' AND EXISTS(SELECT 1 FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=batches.id AND c.is_active=1 AND s.status="active")';
+   if(($filters['has_students']??'')==='no')$sql.=' AND NOT EXISTS(SELECT 1 FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=batches.id AND c.is_active=1 AND s.status="active")';
+  }elseif($key==='teachers'){
+   if(!empty($filters['subject_filter'])){$sql.=' AND subject LIKE ?';$params[]='%'.trim((string)$filters['subject_filter']).'%';}
+   if(!empty($filters['batch_id'])){$sql.=' AND EXISTS(SELECT 1 FROM batches b WHERE b.teacher_id=teachers.id AND b.id=?)';$params[]=(int)$filters['batch_id'];}
+  }elseif($key==='fees'){
+   if(!empty($filters['month'])&&preg_match('/^\d{4}-\d{2}$/',(string)$filters['month'])){$sql.=' AND fee_month=?';$params[]=$filters['month'].'-01';}
+   if(!empty($filters['student_id'])){$sql.=' AND student_id=?';$params[]=(int)$filters['student_id'];}
+   if(!empty($filters['batch_id'])){$sql.=' AND EXISTS(SELECT 1 FROM students s LEFT JOIN student_children c ON c.family_id=s.id AND c.is_active=1 WHERE s.id=fee_payments.student_id AND (s.batch_id=? OR c.batch_id=?))';$id=(int)$filters['batch_id'];array_push($params,$id,$id);}
+   if(!empty($filters['method'])){$sql.=' AND method=?';$params[]=$filters['method'];}
+   if(isset($filters['min_amount'])&&$filters['min_amount']!==''){$sql.=' AND amount>=?';$params[]=(float)$filters['min_amount'];}
+   if(isset($filters['max_amount'])&&$filters['max_amount']!==''){$sql.=' AND amount<=?';$params[]=(float)$filters['max_amount'];}
+  }elseif($key==='enquiries'){
+   if(!empty($filters['status'])){$sql.=' AND status=?';$params[]=$filters['status'];}
+   if(!empty($filters['class_name'])){$sql.=' AND class_name=?';$params[]=$filters['class_name'];}
+   if(!empty($filters['source'])){$sql.=' AND source=?';$params[]=$filters['source'];}
+   if(($filters['converted']??'')==='yes')$sql.=' AND converted_to_student_id IS NOT NULL';
+   if(($filters['converted']??'')==='no')$sql.=' AND converted_to_student_id IS NULL';
+   if(!empty($filters['date_from'])){$sql.=' AND COALESCE(enquiry_date,DATE(created_at))>=?';$params[]=$filters['date_from'];}
+   if(!empty($filters['date_to'])){$sql.=' AND COALESCE(enquiry_date,DATE(created_at))<=?';$params[]=$filters['date_to'];}
+  }elseif($key==='expenses'){
+   if(!empty($filters['category'])){$sql.=' AND category=?';$params[]=$filters['category'];}
+   if(!empty($filters['date_from'])){$sql.=' AND expense_date>=?';$params[]=$filters['date_from'];}
+   if(!empty($filters['date_to'])){$sql.=' AND expense_date<=?';$params[]=$filters['date_to'];}
+   if(isset($filters['min_amount'])&&$filters['min_amount']!==''){$sql.=' AND amount>=?';$params[]=(float)$filters['min_amount'];}
+   if(isset($filters['max_amount'])&&$filters['max_amount']!==''){$sql.=' AND amount<=?';$params[]=(float)$filters['max_amount'];}
+  }elseif($key==='action-logs'){
+   if(!empty($filters['type'])){$sql.=' AND type=?';$params[]=$filters['type'];}
+   if(!empty($filters['date_from'])){$sql.=' AND DATE(log_date)>=?';$params[]=$filters['date_from'];}
+   if(!empty($filters['date_to'])){$sql.=' AND DATE(log_date)<=?';$params[]=$filters['date_to'];}
+  }
+  $sql.=' ORDER BY '.$m['order'].' LIMIT 5000';$query=Database::connection()->prepare($sql);$query->execute($params);$rows=$query->fetchAll(PDO::FETCH_ASSOC);
+  if($key==='students'){
+   foreach($rows as &$row)$row['children']=self::children((int)$row['id']);
+   unset($row);
+  }
+  if($key==='fees'){
+   foreach($rows as &$row)$row=self::localizePaymentRow($row);
+   unset($row);
+   $from=trim((string)($filters['paid_from']??''));$to=trim((string)($filters['paid_to']??''));
+   if($from!==''||$to!=='')$rows=array_values(array_filter($rows,static function(array $row)use($from,$to):bool{
+    $day=substr((string)$row['paid_on'],0,10);return ($from===''||$day>=$from)&&($to===''||$day<=$to);
+   }));
+  }
+  if($key==='batches'){
+   $counts=Database::connection()->query("SELECT c.batch_id,COUNT(*) AS student_count FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.is_active=1 AND s.status='active' GROUP BY c.batch_id")->fetchAll(PDO::FETCH_KEY_PAIR);
+   foreach($rows as &$row)$row['student_count']=(int)($counts[$row['id']]??0);
+   unset($row);
+  }
+  if($key==='teachers'){
+   $counts=Database::connection()->query('SELECT teacher_id,COUNT(*) AS batch_count FROM batches WHERE teacher_id IS NOT NULL GROUP BY teacher_id')->fetchAll(PDO::FETCH_KEY_PAIR);
+   foreach($rows as &$row)$row['batch_count']=(int)($counts[$row['id']]??0);
+   unset($row);
+  }
   return $rows;
  }
  public static function find(string $key,string|int $id):?array {
@@ -49,6 +120,23 @@ final class TuitionService {
   if($key==='students')$row['children']=self::children((int)$row['id']);
   if($key==='fees')$row=self::localizePaymentRow($row);
   return $row;
+ }
+ public static function batchStudents(int $batchId):array {
+  $q=Database::connection()->prepare("SELECT c.id AS student_id,c.name,c.class_name,c.family_id,s.name AS family_name,s.guardian_phone,s.monthly_fee,s.status FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=? AND c.is_active=1 AND s.status='active' ORDER BY c.name");
+  $q->execute([$batchId]);return $q->fetchAll(PDO::FETCH_ASSOC);
+ }
+ public static function distinctValues(string $key,string $field):array {
+  $allowed=[
+   'students'=>['class_name'=>'students.class_name'],
+   'batches'=>['subject_filter'=>'batches.subject'],
+   'teachers'=>['subject_filter'=>'teachers.subject'],
+   'enquiries'=>['class_name'=>'enquiries.class_name','source'=>'enquiries.source','status'=>'enquiries.status'],
+   'expenses'=>['category'=>'expenses.category'],
+   'action-logs'=>['type'=>'action_logs.type']
+  ];
+  if(!isset($allowed[$key][$field]))return [];
+  $column=$allowed[$key][$field];$sql='SELECT DISTINCT '.$column.' AS value FROM '.$key.' WHERE '.$column." IS NOT NULL AND ".$column."<>'' ORDER BY value";
+  return array_values(array_filter(array_map('strval',Database::connection()->query($sql)->fetchAll(PDO::FETCH_COLUMN))));
  }
  public static function children(int $familyId):array {
   $q=Database::connection()->prepare('SELECT id,family_id,name,class_name,batch_id,is_active FROM student_children WHERE family_id=? ORDER BY id');$q->execute([$familyId]);return $q->fetchAll(PDO::FETCH_ASSOC);
@@ -173,8 +261,11 @@ final class TuitionService {
  private static function attendanceList(array $filters=[]):array {
   $sql='SELECT * FROM attendance_sessions WHERE 1=1';$p=[];
   if(!empty($filters['batch_id'])){$sql.=' AND batch_id=?';$p[]=(int)$filters['batch_id'];}
-  if(!empty($filters['month'])){$sql.=' AND DATE_FORMAT(session_date,"%Y-%m")=?';$p[]=$filters['month'];}
-  $sql.=' ORDER BY session_date DESC LIMIT 500';$q=Database::connection()->prepare($sql);$q->execute($p);return $q->fetchAll(PDO::FETCH_ASSOC);
+  if(!empty($filters['month'])&&preg_match('/^\d{4}-\d{2}$/',(string)$filters['month'])){$sql.=' AND DATE_FORMAT(session_date,"%Y-%m")=?';$p[]=$filters['month'];}
+  if(!empty($filters['date_from'])){$sql.=' AND session_date>=?';$p[]=$filters['date_from'];}
+  if(!empty($filters['date_to'])){$sql.=' AND session_date<=?';$p[]=$filters['date_to'];}
+  if(!empty($filters['q'])){$sql.=' AND batch_name LIKE ?';$p[]='%'.trim((string)$filters['q']).'%';}
+  $sql.=' ORDER BY session_date DESC LIMIT 1000';$q=Database::connection()->prepare($sql);$q->execute($p);return $q->fetchAll(PDO::FETCH_ASSOC);
  }
  private static function attendanceFind(string $id):?array {
   $q=Database::connection()->prepare('SELECT * FROM attendance_sessions WHERE id=?');$q->execute([$id]);$row=$q->fetch(PDO::FETCH_ASSOC);if(!$row)return null;
@@ -283,11 +374,14 @@ final class TuitionService {
    'expenses'=>$expenses,'net'=>$received-$expenses,'enquiries'=>$enquiries
   ];
  }
- public static function reminders(string $month):array {
-  $students=self::all('students',['status'=>'active']);$payments=self::all('fees',['month'=>$month]);$paid=[];
+ public static function reminders(string $month,array $filters=[]):array {
+  $studentFilters=$filters;$studentFilters['status']='active';$students=self::all('students',$studentFilters);
+  $payments=self::all('fees',['month'=>$month]);$paid=[];
   foreach($payments as $p)$paid[(int)$p['student_id']]=($paid[(int)$p['student_id']]??0)+(float)$p['amount'];
-  $today=new DateTimeImmutable('today');$out=[];
-  foreach($students as $s){$joinedMonth=substr((string)($s['joined_on']??''),0,7);if($joinedMonth!==''&&$joinedMonth>$month)continue;$balance=max(0,(float)$s['monthly_fee']-($paid[(int)$s['id']]??0));if($balance<=0)continue;
+  $today=new DateTimeImmutable('today',new \DateTimeZone('Asia/Kolkata'));$out=[];
+  foreach($students as $s){
+   $joinedMonth=substr((string)($s['joined_on']??''),0,7);if($joinedMonth!==''&&$joinedMonth>$month)continue;
+   $balance=max(0,(float)$s['monthly_fee']-($paid[(int)$s['id']]??0));if($balance<=0)continue;
    $dueMonth=(int)$s['is_fees_advance']?new DateTimeImmutable($month.'-01'):new DateTimeImmutable($month.'-01 +1 month');$day=min(max(1,(int)$s['due_day']),(int)$dueMonth->format('t'));$date=$dueMonth->setDate((int)$dueMonth->format('Y'),(int)$dueMonth->format('m'),$day);
    $out[]=$s+['paid_for_month'=>$paid[(int)$s['id']]??0,'pending_amount'=>$balance,'due_date'=>$date->format('Y-m-d'),'days_overdue'=>$today>$date?(int)$date->diff($today)->format('%a'):0];
   }
