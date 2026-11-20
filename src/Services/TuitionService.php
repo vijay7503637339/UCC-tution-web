@@ -291,8 +291,8 @@ final class TuitionService {
     FROM fee_payments WHERE fee_month=? GROUP BY student_id
    ) p ON p.student_id=s.id
    WHERE s.status='active' AND s.joined_on<?";$queryParams=[$start,$end];
-  if(!empty($filters['batch_id'])){$sql.=' AND (s.batch_id=? OR EXISTS(SELECT 1 FROM student_children fc WHERE fc.family_id=s.id AND fc.batch_id=? AND fc.is_active=1))';$batch=(int)$filters['batch_id'];array_push($queryParams,$batch,$batch);}
-  if(!empty($filters['class_name'])){$sql.=' AND (s.class_name=? OR EXISTS(SELECT 1 FROM student_children fc WHERE fc.family_id=s.id AND fc.class_name=? AND fc.is_active=1))';$class=(string)$filters['class_name'];array_push($queryParams,$class,$class);}
+  if(!empty($filters['batch_id'])){$sql.=' AND (EXISTS(SELECT 1 FROM student_children fc WHERE fc.family_id=s.id AND COALESCE(fc.batch_id,s.batch_id)=? AND fc.is_active=1) OR (NOT EXISTS(SELECT 1 FROM student_children fcx WHERE fcx.family_id=s.id) AND s.batch_id=?))';$batch=(int)$filters['batch_id'];array_push($queryParams,$batch,$batch);}
+  if(!empty($filters['class_name'])){$sql.=' AND (EXISTS(SELECT 1 FROM student_children fc WHERE fc.family_id=s.id AND fc.is_active=1 AND COALESCE(NULLIF(fc.class_name,\'\'),s.class_name)=?) OR (NOT EXISTS(SELECT 1 FROM student_children fcx WHERE fcx.family_id=s.id) AND s.class_name=?))';$class=(string)$filters['class_name'];array_push($queryParams,$class,$class);}
   $q=$db->prepare($sql);$q->execute($queryParams);
   $rows=$q->fetchAll(PDO::FETCH_ASSOC);
 
