@@ -66,6 +66,7 @@ final class TuitionService {
    if(!empty($filters['month'])&&preg_match('/^\d{4}-\d{2}$/',(string)$filters['month'])){$sql.=' AND fee_month=?';$params[]=$filters['month'].'-01';}
    if(!empty($filters['student_id'])){$sql.=' AND student_id=?';$params[]=(int)$filters['student_id'];}
    if(!empty($filters['batch_id'])){$sql.=' AND EXISTS(SELECT 1 FROM students s LEFT JOIN student_children c ON c.family_id=s.id AND c.is_active=1 WHERE s.id=fee_payments.student_id AND (s.batch_id=? OR c.batch_id=?))';$id=(int)$filters['batch_id'];array_push($params,$id,$id);}
+   if(!empty($filters['class_name'])){$sql.=' AND EXISTS(SELECT 1 FROM students s LEFT JOIN student_children c ON c.family_id=s.id AND c.is_active=1 WHERE s.id=fee_payments.student_id AND (s.class_name=? OR c.class_name=?))';$class=(string)$filters['class_name'];array_push($params,$class,$class);}
    if(!empty($filters['method'])){$sql.=' AND method=?';$params[]=$filters['method'];}
    if(isset($filters['min_amount'])&&$filters['min_amount']!==''){$sql.=' AND amount>=?';$params[]=(float)$filters['min_amount'];}
    if(isset($filters['max_amount'])&&$filters['max_amount']!==''){$sql.=' AND amount<=?';$params[]=(float)$filters['max_amount'];}
@@ -135,7 +136,7 @@ final class TuitionService {
    'action-logs'=>['type'=>'action_logs.type']
   ];
   if(!isset($allowed[$key][$field]))return [];
-  $column=$allowed[$key][$field];$sql='SELECT DISTINCT '.$column.' AS value FROM '.$key.' WHERE '.$column." IS NOT NULL AND ".$column."<>'' ORDER BY value";
+  $column=$allowed[$key][$field];$table=self::meta($key)['table'];$sql='SELECT DISTINCT '.$column.' AS value FROM '.$table.' WHERE '.$column." IS NOT NULL AND ".$column."<>'' ORDER BY value";
   return array_values(array_filter(array_map('strval',Database::connection()->query($sql)->fetchAll(PDO::FETCH_COLUMN))));
  }
  public static function children(int $familyId):array {
@@ -165,7 +166,7 @@ final class TuitionService {
   $row['paid_on_local']=$row['paid_on'];
   return $row;
  }
- public static function receivedPayments(string $start,string $end):array {
+ public static function receivedPayments(string $start,string $end,array $filters=[]):array {
   $timezone=new \DateTimeZone('Asia/Kolkata');
   // Use a two-day storage window because imported UTC values can sit on the
   // previous MySQL calendar date; PHP applies the exact local-date filter below.
@@ -274,7 +275,7 @@ final class TuitionService {
  public static function attendanceStudents(int $batchId):array {
   $q=Database::connection()->prepare("SELECT c.id,c.name,c.class_name,c.family_id FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=? AND c.is_active=1 AND s.status='active' ORDER BY c.name");$q->execute([$batchId]);return $q->fetchAll(PDO::FETCH_ASSOC);
  }
- public static function dashboard(string $month):array {
+ public static function dashboard(string $month,array $filters=[]):array {
   if(!preg_match('/^\\d{4}-\\d{2}$/',$month))$month=date('Y-m');
   $start=$month.'-01';
   $end=(new DateTimeImmutable($start))->modify('+1 month')->format('Y-m-d');
@@ -282,15 +283,16 @@ final class TuitionService {
 
   // A billable family must be active and must contain at least one active child profile.
   // This prevents inactive/empty families from inflating the selected month's overdue balance.
-  $q=$db->prepare("SELECT s.*,COALESCE(p.paid,0) paid
+  $sql="SELECT s.*,COALESCE(p.paid,0) paid
    FROM students s
    LEFT JOIN (
     SELECT student_id,SUM(amount) paid
     FROM fee_payments WHERE fee_month=? GROUP BY student_id
    ) p ON p.student_id=s.id
-   WHERE s.status='active'
-    AND s.joined_on<?");
-  $q->execute([$start,$end]);
+   WHERE s.status='active' AND s.joined_on<?";$queryParams=[$start,$end];
+  if(!empty($filters['batch_id'])){$sql.=' AND (s.batch_id=? OR EXISTS(SELECT 1 FROM student_children fc WHERE fc.family_id=s.id AND fc.batch_id=? AND fc.is_active=1))';$batch=(int)$filters['batch_id'];array_push($queryParams,$batch,$batch);}
+  if(!empty($filters['class_name'])){$sql.=' AND (s.class_name=? OR EXISTS(SELECT 1 FROM student_children fc WHERE fc.family_id=s.id AND fc.class_name=? AND fc.is_active=1))';$class=(string)$filters['class_name'];array_push($queryParams,$class,$class);}
+  $q=$db->prepare($sql);$q->execute($queryParams);
   $rows=$q->fetchAll(PDO::FETCH_ASSOC);
 
   $expected=0.0;$collected=0.0;$pending=0.0;$overdue=0.0;
@@ -306,7 +308,12 @@ final class TuitionService {
    if($due<=0)$paidCount++;elseif($got>0)$partialCount++;else$unpaidCount++;
 
    $children=self::children((int)$s['id']);
-   $count=count(array_filter($children,static fn($c)=>(int)$c['is_active']===1));
+   $count=count(array_filter($children,static function($c)use($filters,$s):bool{
+    if((int)$c['is_active']!==1)return false;
+    if(!empty($filters['batch_id'])&&(int)$c['batch_id']!==(int)$filters['batch_id'])return false;
+    if(!empty($filters['class_name'])){$childClass=trim((string)$c['class_name']);if($childClass!==''?$childClass!==(string)$filters['class_name']:(string)$s['class_name']!==(string)$filters['class_name'])return false;}
+    return true;
+   }));
    $activeChildren+=$count;
 
    $dueMonth=(int)$s['is_fees_advance']
@@ -327,7 +334,7 @@ final class TuitionService {
 
   // Receiving is grouped by the original payment instant converted to India time.
   // Fee-month allocation remains separate from the actual date money was received.
-  $monthPayments=self::receivedPayments($start,$end);
+  $monthPayments=self::receivedPayments($start,$end,$filters);
   $byDay=[];$received=0.0;
   foreach($monthPayments as $payment){
    $date=(string)$payment['local_paid_date'];$amount=(float)$payment['amount'];
@@ -341,7 +348,7 @@ final class TuitionService {
   if($todayStart>=$start&&$todayStart<$end){
    $receivedToday=(float)($byDay[$todayStart]['amount']??0);
   }else{
-   $todayPayments=self::receivedPayments($todayStart,$tomorrow);$receivedToday=0.0;
+   $todayPayments=self::receivedPayments($todayStart,$tomorrow,$filters);$receivedToday=0.0;
    foreach($todayPayments as $payment)$receivedToday+=(float)$payment['amount'];
   }
 
