@@ -131,7 +131,7 @@ private function resourceList(string $key):never {
   $count=count($rows);
   if($key==='students'){
    $students=0;$monthly=0.0;$families=0;
-   foreach($rows as $r){$students+=count(array_filter($r['children']??[],static fn($c)=>(int)($c['is_active']??0)===1));if(($r['status']??'')==='active'){$monthly+=(float)$r['monthly_fee'];$families++;}}
+   foreach($rows as $r){if(($r['status']??'')==='active'){$students+=count(array_filter($r['children']??[],static fn($c)=>(int)($c['is_active']??0)===1));$monthly+=(float)$r['monthly_fee'];$families++;}}
    return [['Student profiles',number_format($students),'Active child profiles in the filtered families'],['Families',number_format($families),number_format($count).' matching family records'],['Potential monthly fees',H::money($monthly),'Monthly fee total for active families']];
   }
   if($key==='batches'){
