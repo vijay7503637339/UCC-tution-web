@@ -57,7 +57,7 @@ final class TuitionService {
   }elseif($key==='batches'){
    if(!empty($filters['teacher_id'])){$sql.=' AND teacher_id=?';$params[]=(int)$filters['teacher_id'];}
    if(!empty($filters['subject_filter'])){$sql.=' AND subject LIKE ?';$params[]='%'.trim((string)$filters['subject_filter']).'%';}
-   if(($filters['has_students']??'')==='yes')$sql.=' AND EXISTS(SELECT 1 FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=batches.id AND c.is_active=1 AND s.status="active")';
+   if(($filters['has_students']??'')==='yes')$sql.=' AND EXISTS(SELECT 1 FROM student_children c JOIN students s ON s.id=c.family_id WHERE COALESCE(c.batch_id,s.batch_id)=batches.id AND c.is_active=1 AND s.status="active")';
    if(($filters['has_students']??'')==='no')$sql.=' AND NOT EXISTS(SELECT 1 FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=batches.id AND c.is_active=1 AND s.status="active")';
   }elseif($key==='teachers'){
    if(!empty($filters['subject_filter'])){$sql.=' AND subject LIKE ?';$params[]='%'.trim((string)$filters['subject_filter']).'%';}
@@ -103,7 +103,7 @@ final class TuitionService {
    }));
   }
   if($key==='batches'){
-   $counts=Database::connection()->query("SELECT c.batch_id,COUNT(*) AS student_count FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.is_active=1 AND s.status='active' GROUP BY c.batch_id")->fetchAll(PDO::FETCH_KEY_PAIR);
+   $counts=Database::connection()->query("SELECT COALESCE(c.batch_id,s.batch_id) AS batch_id,COUNT(*) AS student_count FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.is_active=1 AND s.status='active' AND COALESCE(c.batch_id,s.batch_id) IS NOT NULL GROUP BY COALESCE(c.batch_id,s.batch_id)")->fetchAll(PDO::FETCH_KEY_PAIR);
    foreach($rows as &$row)$row['student_count']=(int)($counts[$row['id']]??0);
    unset($row);
   }
@@ -123,7 +123,7 @@ final class TuitionService {
   return $row;
  }
  public static function batchStudents(int $batchId):array {
-  $q=Database::connection()->prepare("SELECT c.id AS student_id,c.name,c.class_name,c.family_id,s.name AS family_name,s.guardian_phone,s.monthly_fee,s.status FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=? AND c.is_active=1 AND s.status='active' ORDER BY c.name");
+  $q=Database::connection()->prepare("SELECT c.id AS student_id,c.name,c.class_name,c.family_id,s.name AS family_name,s.guardian_phone,s.monthly_fee,s.status FROM student_children c JOIN students s ON s.id=c.family_id WHERE COALESCE(c.batch_id,s.batch_id)=? AND c.is_active=1 AND s.status='active' ORDER BY c.name");
   $q->execute([$batchId]);return $q->fetchAll(PDO::FETCH_ASSOC);
  }
  public static function distinctValues(string $key,string $field):array {
@@ -273,7 +273,7 @@ final class TuitionService {
   $r=Database::connection()->prepare('SELECT student_id,attendance_status FROM attendance_records WHERE session_id=?');$r->execute([$id]);$row['records']=$r->fetchAll(PDO::FETCH_KEY_PAIR);return $row;
  }
  public static function attendanceStudents(int $batchId):array {
-  $q=Database::connection()->prepare("SELECT c.id,c.name,c.class_name,c.family_id FROM student_children c JOIN students s ON s.id=c.family_id WHERE c.batch_id=? AND c.is_active=1 AND s.status='active' ORDER BY c.name");$q->execute([$batchId]);return $q->fetchAll(PDO::FETCH_ASSOC);
+  $q=Database::connection()->prepare("SELECT c.id,c.name,c.class_name,c.family_id FROM student_children c JOIN students s ON s.id=c.family_id WHERE COALESCE(c.batch_id,s.batch_id)=? AND c.is_active=1 AND s.status='active' ORDER BY c.name");$q->execute([$batchId]);return $q->fetchAll(PDO::FETCH_ASSOC);
  }
  public static function dashboard(string $month,array $filters=[]):array {
   if(!preg_match('/^\\d{4}-\\d{2}$/',$month))$month=date('Y-m');
@@ -310,7 +310,7 @@ final class TuitionService {
    $children=self::children((int)$s['id']);
    $count=count(array_filter($children,static function($c)use($filters,$s):bool{
     if((int)$c['is_active']!==1)return false;
-    if(!empty($filters['batch_id'])&&(int)$c['batch_id']!==(int)$filters['batch_id'])return false;
+    if(!empty($filters['batch_id'])&&((int)($c['batch_id']?:($s['batch_id']??0)))!==(int)$filters['batch_id'])return false;
     if(!empty($filters['class_name'])){$childClass=trim((string)$c['class_name']);if($childClass!==''?$childClass!==(string)$filters['class_name']:(string)$s['class_name']!==(string)$filters['class_name'])return false;}
     return true;
    }));
