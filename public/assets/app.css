@@ -24,3 +24,11 @@
 .daily-receiving-track span{display:block;height:100%;border-radius:10px;background:linear-gradient(90deg,#315efb,#21b887);min-width:0}
 @media(max-width:1050px){.daily-receiving-list{grid-template-columns:1fr}}
 @media(max-width:580px){.daily-receiving-panel{padding:15px}.daily-receiving-row{grid-template-columns:42px minmax(0,1fr);gap:9px}.daily-date-badge{width:40px;height:40px}}
+
+/* Clickable receiving summaries and day rows */
+.stat-card-anchor{display:block;color:inherit;text-decoration:none;border-radius:14px}
+.stat-card-anchor:hover .stat-card{border-color:#c4d1ff;box-shadow:0 12px 28px rgba(49,94,251,.12);transform:translateY(-1px)}
+.stat-card-anchor .stat-card{height:100%;transition:.16s}
+.daily-receiving-link{display:grid;color:inherit;text-decoration:none;border-radius:10px;transition:background .16s,box-shadow .16s;padding-left:5px;padding-right:5px}
+.daily-receiving-link:hover{background:#f7f9ff;box-shadow:inset 0 0 0 1px #e8edff}
+.daily-receiving-link:focus-visible,.stat-card-anchor:focus-visible{outline:3px solid #9bb2ff;outline-offset:2px}
