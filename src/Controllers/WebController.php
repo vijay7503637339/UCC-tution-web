@@ -75,7 +75,7 @@ final class WebController {
   foreach($daily as $day)$maxDaily=max($maxDaily,(float)$day['amount']);
   $dailyHtml='';
   foreach($daily as $day){
-   $date=new \\DateTimeImmutable((string)$day['date']);
+   $date=new \DateTimeImmutable((string)$day['date']);
    $amount=(float)$day['amount'];
    $transactions=(int)$day['transactions'];
    $width=$maxDaily>0?min(100,($amount/$maxDaily)*100):0;
