@@ -168,21 +168,21 @@ final class TuitionService {
  }
  public static function receivedPayments(string $start,string $end,array $filters=[]):array {
   $timezone=new \DateTimeZone('Asia/Kolkata');
-  // Use a two-day storage window because imported UTC values can sit on the
-  // previous MySQL calendar date; PHP applies the exact local-date filter below.
+  // Imported Firestore timestamps may be stored using UTC wall-clock values.
+  // Fetch a safe storage window, then decide each payment's exact IST date in PHP.
   $from=(new DateTimeImmutable($start,$timezone))->modify('-2 days')->format('Y-m-d H:i:s');
   $until=(new DateTimeImmutable($end,$timezone))->modify('+2 days')->format('Y-m-d H:i:s');
   $sql='SELECT p.*,s.name AS student_name,s.class_name AS student_class
    FROM fee_payments p LEFT JOIN students s ON s.id=p.student_id
-   WHERE p.paid_on>=? AND p.paid_on<?
-   ORDER BY p.paid_on DESC,p.id DESC';
-  $q=Database::connection()->prepare($sql);$q->execute([$from,$until]);$out=[];
+   WHERE p.paid_on>=? AND p.paid_on<?';$params=[$from,$until];
+  if(!empty($filters['batch_id'])){$sql.=' AND (s.batch_id=? OR EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=s.id AND c.batch_id=? AND c.is_active=1))';$id=(int)$filters['batch_id'];array_push($params,$id,$id);}
+  if(!empty($filters['class_name'])){$sql.=' AND (s.class_name=? OR EXISTS(SELECT 1 FROM student_children c WHERE c.family_id=s.id AND c.class_name=? AND c.is_active=1))';$class=(string)$filters['class_name'];array_push($params,$class,$class);}
+  $sql.=' ORDER BY p.paid_on DESC,p.id DESC';
+  $q=Database::connection()->prepare($sql);$q->execute($params);$out=[];
   foreach($q->fetchAll(PDO::FETCH_ASSOC) as $row){
    $local=self::paymentLocalDateTime($row);$localDate=$local->format('Y-m-d');
    if($localDate<$start||$localDate>=$end)continue;
-   $row['paid_on_local']=$local->format('Y-m-d H:i:s');
-   $row['local_paid_date']=$localDate;
-   $out[]=$row;
+   $row['paid_on_local']=$local->format('Y-m-d H:i:s');$row['local_paid_date']=$localDate;$out[]=$row;
   }
   return $out;
  }
