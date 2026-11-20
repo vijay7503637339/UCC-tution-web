@@ -148,8 +148,7 @@ final class TuitionService {
     FROM fee_payments WHERE fee_month=? GROUP BY student_id
    ) p ON p.student_id=s.id
    WHERE s.status='active'
-    AND s.joined_on<?
-    AND EXISTS (SELECT 1 FROM student_children c WHERE c.family_id=s.id AND c.is_active=1)");
+    AND s.joined_on<?");
   $q->execute([$start,$end]);
   $rows=$q->fetchAll(PDO::FETCH_ASSOC);
 
@@ -165,6 +164,10 @@ final class TuitionService {
 
    if($due<=0)$paidCount++;elseif($got>0)$partialCount++;else$unpaidCount++;
 
+   $children=self::children((int)$s['id']);
+   $count=count(array_filter($children,static fn($c)=>(int)$c['is_active']===1));
+   $activeChildren+=$count;
+
    $dueMonth=(int)$s['is_fees_advance']
     ?new DateTimeImmutable($month.'-01')
     :new DateTimeImmutable($month.'-01 +1 month');
@@ -172,15 +175,12 @@ final class TuitionService {
    $dueDate=$dueMonth->setDate((int)$dueMonth->format('Y'),(int)$dueMonth->format('m'),$day);
    $joinedOn=new DateTimeImmutable((string)$s['joined_on']);
 
-   // Do not mark a student overdue if they joined after the fee due date.
-   if($due>0 && $today>$dueDate && $joinedOn<=$dueDate){
+   // Overdue is counted only when this active family has an active child
+   // and the family joined on or before the selected month's due date.
+   if($count>0 && $due>0 && $today>$dueDate && $joinedOn<=$dueDate){
     $overdue+=$due;
     $overdueCount++;
    }
-
-   $children=self::children((int)$s['id']);
-   $count=count(array_filter($children,static fn($c)=>(int)$c['is_active']===1));
-   $activeChildren+=$count;
    if(substr((string)$s['joined_on'],0,7)===$month)$new+=max(1,$count);
   }
 
