@@ -92,14 +92,14 @@ final class WebController {
   Response::html($this->layout('Dashboard',$body));
  }
  private function receivingDetail(?string $date):never {
-  $timezone=new \\DateTimeZone('Asia/Kolkata');
+  $timezone=new \DateTimeZone('Asia/Kolkata');
   if($date!==null){
-   $parsed=\\DateTimeImmutable::createFromFormat('!Y-m-d',$date,$timezone);
+   $parsed=\DateTimeImmutable::createFromFormat('!Y-m-d',$date,$timezone);
    if(!$parsed||$parsed->format('Y-m-d')!==$date)Response::html($this->layout('Receiving details','<div class="panel">Invalid payment date.</div>'),400);
    $start=$date;$end=$parsed->modify('+1 day')->format('Y-m-d');
    $heading='Payments received on '.$parsed->format('d F Y');$rangeLabel=$parsed->format('d M Y');$backMonth=$parsed->format('Y-m');
   }else{
-   $month=$this->monthParam();$monthStart=new \\DateTimeImmutable($month.'-01',$timezone);
+   $month=$this->monthParam();$monthStart=new \DateTimeImmutable($month.'-01',$timezone);
    $start=$monthStart->format('Y-m-d');$end=$monthStart->modify('+1 month')->format('Y-m-d');
    $heading='Payments received in '.$monthStart->format('F Y');$rangeLabel=$monthStart->format('F Y');$backMonth=$month;
   }
@@ -109,7 +109,7 @@ final class WebController {
   $body.='<div class="grid stats three"><article class="stat-card"><span>Total received</span><strong>'.H::money($total).'</strong><small>'.H::e($rangeLabel).'</small></article><article class="stat-card"><span>Transactions</span><strong>'.number_format(count($rows)).'</strong><small>Individual fee receipts</small></article><article class="stat-card"><span>Average receipt</span><strong>'.H::money(count($rows)>0?$total/count($rows):0).'</strong><small>Per transaction</small></article></div>';
   $body.='<section class="panel section"><div class="panel-head"><div><h3>'.H::e($heading).'</h3><p class="muted tiny">Payment date is shown in India Standard Time (IST).</p></div><a href="/fees">All fee records</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Student</th><th>Class</th><th>Fee month</th><th>Received date & time</th><th>Amount</th><th>Method</th><th>Note</th></tr></thead><tbody>';
   foreach($rows as $row){
-   $paidAt=new \\DateTimeImmutable((string)$row['paid_on_local'],$timezone);
+   $paidAt=new \DateTimeImmutable((string)$row['paid_on_local'],$timezone);
    $feeMonth=date('F Y',strtotime((string)$row['fee_month']));
    $student='<a href="/students/'.(int)$row['student_id'].'">'.H::e($row['student_name']??'Unknown student').'</a>';
    $body.='<tr><td>#'.H::e($row['id']).'</td><td><strong>'.$student.'</strong></td><td>'.H::e($row['student_class']??'').'</td><td>'.H::e($feeMonth).'</td><td>'.H::e($paidAt->format('d M Y, h:i A')).'</td><td><strong>'.H::money($row['amount']).'</strong></td><td>'.H::e($row['method']??'').'</td><td>'.H::e($row['note']??'').'</td></tr>';
@@ -158,7 +158,7 @@ final class WebController {
   foreach(($student['children']??[]) as $child)$body.='<div class="history-item"><span><strong>'.H::e($child['name']).'</strong><small>'.H::e($child['class_name']).'</small></span><span class="pill '.((int)$child['is_active']===1?'green':'gray').'">'.((int)$child['is_active']===1?'Active':'Inactive').'</span></div>';
   if(empty($student['children']))$body.='<p class="empty">No child profiles recorded.</p>';
   $body.='</div></section></div><section class="panel section"><div class="panel-head"><h3>Fee payment history</h3><a class="btn primary" href="/fees/new">Record payment</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Fee month</th><th>Paid on</th><th>Amount</th><th>Method</th><th>Note</th></tr></thead><tbody>';
-  foreach($payments as $p)$body.='<tr><td>#'.H::e($p['id']).'</td><td>'.H::date($p['fee_month']).'</td><td>'.H::date($p['paid_on']).'</td><td><strong>'.H::money($p['amount']).'</strong></td><td>'.H::e($p['method']).'</td><td>'.H::e($p['note']).'</td></tr>';
+  foreach($payments as $p)$body.='<tr><td>#'.H::e($p['id']).'</td><td>'.H::date($p['fee_month']).'</td><td>'.H::dateTime($p['paid_on']).'</td><td><strong>'.H::money($p['amount']).'</strong></td><td>'.H::e($p['method']).'</td><td>'.H::e($p['note']).'</td></tr>';
   if(!$payments)$body.='<tr><td colspan="6" class="empty">No fee transactions yet.</td></tr>';
   $body.='</tbody></table></div></section>';
   Response::html($this->layout('Student profile',$body));
