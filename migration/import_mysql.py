@@ -2,7 +2,7 @@
 """Idempotent Firestore JSONL snapshot importer for the new UCC MySQL database."""
 from __future__ import annotations
 import argparse, json, os, sys, uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 from typing import Any
 import pymysql
@@ -25,7 +25,11 @@ def decode(value: Any) -> Any:
         marker = value.get("__ucc_type__")
         if marker == "timestamp":
             raw = value.get("value", "")
-            return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+            stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            india_timezone = timezone(timedelta(hours=5, minutes=30))
+            return stamp.astimezone(india_timezone).replace(tzinfo=None)
         if marker == "document_reference": return value.get("path")
         if marker == "bytes": return value.get("value")
         return {k: decode(v) for k, v in value.items()}
