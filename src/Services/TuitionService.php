@@ -39,15 +39,63 @@ final class TuitionService {
   if($key==='enquiries'&&!empty($filters['status'])){$sql.=' AND status=?';$params[]=$filters['status'];}
   $sql.=' ORDER BY '.$m['order'].' LIMIT 1000';$q=Database::connection()->prepare($sql);$q->execute($params);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
   if($key==='students')foreach($rows as &$row)$row['children']=self::children((int)$row['id']);unset($row);
+  if($key==='fees')foreach($rows as &$row)$row=self::localizePaymentRow($row);unset($row);
   return $rows;
  }
  public static function find(string $key,string|int $id):?array {
   if($key==='attendance')return self::attendanceFind((string)$id);
   $m=self::meta($key);$q=Database::connection()->prepare('SELECT * FROM '.$m['table'].' WHERE id=? LIMIT 1');$q->execute([$id]);$row=$q->fetch(PDO::FETCH_ASSOC);
-  if(!$row)return null;if($key==='students')$row['children']=self::children((int)$row['id']);return $row;
+  if(!$row)return null;
+  if($key==='students')$row['children']=self::children((int)$row['id']);
+  if($key==='fees')$row=self::localizePaymentRow($row);
+  return $row;
  }
  public static function children(int $familyId):array {
   $q=Database::connection()->prepare('SELECT id,family_id,name,class_name,batch_id,is_active FROM student_children WHERE family_id=? ORDER BY id');$q->execute([$familyId]);return $q->fetchAll(PDO::FETCH_ASSOC);
+ }
+
+ // Firestore timestamps were exported as UTC ISO strings and the first importer
+ // stored their UTC wall-clock value in MySQL DATETIME. Re-read the preserved
+ // source timestamp and convert it to India time; web-entered DATETIME values
+ // without a tagged Firestore timestamp are already local time.
+ private static function paymentLocalDateTime(array $row):DateTimeImmutable {
+  $timezone=new \DateTimeZone('Asia/Kolkata');
+  $raw=$row['raw_data']??null;
+  if(is_string($raw)&&$raw!==''){
+   $source=json_decode($raw,true);
+   $sourceDate=is_array($source)?($source['date']??null):null;
+   if(is_array($sourceDate)&&($sourceDate['__ucc_type__']??null)==='timestamp'&&!empty($sourceDate['value'])){
+    try{return (new DateTimeImmutable((string)$sourceDate['value']))->setTimezone($timezone);}catch(\Throwable){}
+   }
+  }
+  return new DateTimeImmutable((string)($row['paid_on']??'now'),$timezone);
+ }
+ private static function localizePaymentRow(array $row):array {
+  $local=self::paymentLocalDateTime($row);
+  $row['paid_on_stored']=$row['paid_on']??null;
+  $row['paid_on']=$local->format('Y-m-d H:i:s');
+  $row['paid_on_local']=$row['paid_on'];
+  return $row;
+ }
+ public static function receivedPayments(string $start,string $end):array {
+  $timezone=new \DateTimeZone('Asia/Kolkata');
+  // Use a two-day storage window because imported UTC values can sit on the
+  // previous MySQL calendar date; PHP applies the exact local-date filter below.
+  $from=(new DateTimeImmutable($start,$timezone))->modify('-2 days')->format('Y-m-d H:i:s');
+  $until=(new DateTimeImmutable($end,$timezone))->modify('+2 days')->format('Y-m-d H:i:s');
+  $sql='SELECT p.*,s.name AS student_name,s.class_name AS student_class
+   FROM fee_payments p LEFT JOIN students s ON s.id=p.student_id
+   WHERE p.paid_on>=? AND p.paid_on<?
+   ORDER BY p.paid_on DESC,p.id DESC';
+  $q=Database::connection()->prepare($sql);$q->execute([$from,$until]);$out=[];
+  foreach($q->fetchAll(PDO::FETCH_ASSOC) as $row){
+   $local=self::paymentLocalDateTime($row);$localDate=$local->format('Y-m-d');
+   if($localDate<$start||$localDate>=$end)continue;
+   $row['paid_on_local']=$local->format('Y-m-d H:i:s');
+   $row['local_paid_date']=$localDate;
+   $out[]=$row;
+  }
+  return $out;
  }
  private static function normalize(string $field,mixed $value):mixed {
   if($value==='')return null;
@@ -84,6 +132,8 @@ final class TuitionService {
   if($key==='fees'){
    if(empty($values['student_id'])||!self::find('students',(int)$values['student_id']))throw new RuntimeException('Choose a valid student');
    $values['fee_month']=$values['fee_month']??date('Y-m-01');$values['paid_on']=$values['paid_on']??date('Y-m-d H:i:s');
+   // If an imported receipt is edited, stop using its old Firestore timestamp.
+   if(array_key_exists('paid_on',$data))$values['raw_data']=null;
   }
   if($key==='expenses')$values['expense_date']=$values['expense_date']??date('Y-m-d');
   if($key==='enquiries')$values['status']=$values['status']??'New';
@@ -184,28 +234,24 @@ final class TuitionService {
    if(substr((string)$s['joined_on'],0,7)===$month)$new+=max(1,$count);
   }
 
-  // "Receiving" is based on the actual payment date, not the fee-month allocation.
-  $q=$db->prepare('SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE paid_on>=? AND paid_on<?');
-  $q->execute([$start,$end]);
-  $received=(float)$q->fetchColumn();
+  // Receiving is grouped by the original payment instant converted to India time.
+  // Fee-month allocation remains separate from the actual date money was received.
+  $monthPayments=self::receivedPayments($start,$end);
+  $byDay=[];$received=0.0;
+  foreach($monthPayments as $payment){
+   $date=(string)$payment['local_paid_date'];$amount=(float)$payment['amount'];
+   $received+=$amount;
+   if(!isset($byDay[$date]))$byDay[$date]=['amount'=>0.0,'transactions'=>0];
+   $byDay[$date]['amount']+=$amount;$byDay[$date]['transactions']++;
+  }
 
-  $todayStart=date('Y-m-d');
-  $tomorrow=(new DateTimeImmutable($todayStart))->modify('+1 day')->format('Y-m-d');
-  $q=$db->prepare('SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE paid_on>=? AND paid_on<?');
-  $q->execute([$todayStart,$tomorrow]);
-  $receivedToday=(float)$q->fetchColumn();
-
-  // Aggregate actual cash receipts by payment date for the selected calendar month.
-  $q=$db->prepare('SELECT DATE(paid_on) AS received_on,COUNT(*) AS transactions,COALESCE(SUM(amount),0) AS amount
-   FROM fee_payments WHERE paid_on>=? AND paid_on<?
-   GROUP BY DATE(paid_on)');
-  $q->execute([$start,$end]);
-  $byDay=[];
-  foreach($q->fetchAll(PDO::FETCH_ASSOC) as $row){
-   $byDay[(string)$row['received_on']]=[
-    'amount'=>(float)$row['amount'],
-    'transactions'=>(int)$row['transactions']
-   ];
+  $todayStart=(new DateTimeImmutable('today',new \DateTimeZone('Asia/Kolkata')))->format('Y-m-d');
+  $tomorrow=(new DateTimeImmutable($todayStart,new \DateTimeZone('Asia/Kolkata')))->modify('+1 day')->format('Y-m-d');
+  if($todayStart>=$start&&$todayStart<$end){
+   $receivedToday=(float)($byDay[$todayStart]['amount']??0);
+  }else{
+   $todayPayments=self::receivedPayments($todayStart,$tomorrow);$receivedToday=0.0;
+   foreach($todayPayments as $payment)$receivedToday+=(float)$payment['amount'];
   }
 
   // Show every elapsed day in the selected month, including zero-receipt days.
