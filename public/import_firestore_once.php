@@ -5,8 +5,24 @@ declare(strict_types=1);
    actionLogs are intentionally excluded. */
 define("UCC_IMPORT_ROOT", dirname(__DIR__));
 function ucc_imp_env(): array {
-  $out=[]; $p=UCC_IMPORT_ROOT."/.env"; if(!is_file($p)) throw new RuntimeException(".env not found.");
-  foreach(file($p, FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES)?:[] as $line){$line=trim($line);if($line===""||$line[0]==="#"||!str_contains($line,"="))continue;[$k,$v]=explode("=",$line,2);$out[trim($k)]=trim(trim($v)," \\t\\n\\r\\0\\x0B\\\"\'");} return $out;
+    $out = [];
+    $path = UCC_IMPORT_ROOT . '/.env';
+    if (!is_file($path)) throw new RuntimeException('.env not found.');
+    foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) continue;
+        [$key, $value] = explode('=', $line, 2);
+        $value = trim($value);
+        if (strlen($value) >= 2) {
+            $first = $value[0];
+            $last = substr($value, -1);
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $value = substr($value, 1, -1);
+            }
+        }
+        $out[trim($key)] = $value;
+    }
+    return $out;
 }
 function ucc_imp_dec($v){if(!is_array($v))return $v;$t=$v["__ucc_type__"]??null;if($t==="timestamp"){try{return(new DateTimeImmutable((string)($v["value"]??"")))->setTimezone(new DateTimeZone("UTC"))->format("Y-m-d H:i:s");}catch(Throwable $e){return null;}}if($t==="document_reference")return $v["path"]??null;if($t==="bytes")return $v["value"]??null;foreach($v as $k=>$x)$v[$k]=ucc_imp_dec($x);return $v;}
 function ucc_imp_id($doc,$d):?int{if(is_numeric($doc))return(int)$doc;return isset($d["id"])&&is_numeric($d["id"])?(int)$d["id"]:null;}
@@ -49,10 +65,10 @@ try{
  foreach(["DB_HOST","DB_NAME","DB_USER"] as $k)if(empty($env[$k]))throw new RuntimeException("Missing database setting ".$k);$db=new PDO("mysql:host=".$env["DB_HOST"].";port=".($env["DB_PORT"]??"3306").";dbname=".$env["DB_NAME"].";charset=utf8mb4",$env["DB_USER"],$env["DB_PASS"]??"",[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
  $tables=["teachers","batches","students","student_children","fee_payments","enquiries","attendance_sessions","attendance_records","expenses","firestore_document_archive","migration_runs"];foreach($tables as $t){$q=$db->prepare("SHOW TABLES LIKE ?");$q->execute([$t]);if(!$q->fetchColumn())throw new RuntimeException("Missing table ".$t."; import database/schema.sql first.");}
  $source=[];$h=fopen($file,"rb");if(!$h)throw new RuntimeException("Cannot read JSONL.");$ln=0;while(($line=fgets($h))!==false){$ln++;if(trim($line)==="")continue;$r=json_decode($line,true,512,JSON_THROW_ON_ERROR);$cp=(string)($r["collection_path"]??"");if($cp===""||explode("/",$cp)[0]==="actionLogs"||!isset($r["document_id"],$r["data"]))throw new RuntimeException("Invalid row/actionLogs at line ".$ln);$source[$cp]=($source[$cp]??0)+1;}fclose($h);ksort($source);$mc=$manifest["collections"];ksort($mc);if($source!==$mc)throw new RuntimeException("JSONL counts do not match manifest; no import performed.");
- $run=sprintf("%04x%04x-%04x-%04x-%04x-%04x%04x%04x",random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535));$db->beginTransaction();$db->prepare("INSERT INTO migration_runs(run_key,status,source_project_id) VALUES(?,\'started\',?)")->execute([$run,"uccapp-5411e"]);
+ $run=sprintf("%04x%04x-%04x-%04x-%04x-%04x%04x%04x",random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535),random_int(0,65535));$db->beginTransaction();$db->prepare("INSERT INTO migration_runs(run_key,status,source_project_id) VALUES(?,'started',?)")->execute([$run,"uccapp-5411e"]);
  $rows=[];$h=fopen($file,"rb");while(($line=fgets($h))!==false){if(trim($line)==="")continue;$rows[]=json_decode($line,true,512,JSON_THROW_ON_ERROR);}fclose($h);
  $priority=["teachers"=>0,"batches"=>1,"students"=>2,"fees"=>3,"enquiries"=>4,"expenses"=>5,"attendance"=>6];
  usort($rows,static function($a,$b)use($priority){$pa=(string)($a["collection_path"]??"");$pb=(string)($b["collection_path"]??"");$ra=explode("/",$pa)[0];$rb=explode("/",$pb)[0];$oa=$priority[$ra]??50;$ob=$priority[$rb]??50;if($oa!==$ob)return $oa<=>$ob;$na=str_contains($pa,"/")?1:0;$nb=str_contains($pb,"/")?1:0;if($na!==$nb)return $na<=>$nb;return strcmp($pa,$pb);});
- $counts=[];$warnings=[];foreach($rows as $r){ucc_imp_record($db,$r,$warnings);$cp=$r["collection_path"];$counts[$cp]=($counts[$cp]??0)+1;}$summary=json_encode(["total_documents"=>array_sum($counts),"collections"=>$counts,"warnings"=>$warnings],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);$db->prepare("UPDATE migration_runs SET status=\\'completed\\',completed_at=UTC_TIMESTAMP(),summary_json=? WHERE run_key=?")->execute([$summary,$run]);$db->commit();
+ $counts=[];$warnings=[];foreach($rows as $r){ucc_imp_record($db,$r,$warnings);$cp=$r["collection_path"];$counts[$cp]=($counts[$cp]??0)+1;}$summary=json_encode(["total_documents"=>array_sum($counts),"collections"=>$counts,"warnings"=>$warnings],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);$db->prepare("UPDATE migration_runs SET status=\'completed\',completed_at=UTC_TIMESTAMP(),summary_json=? WHERE run_key=?")->execute([$summary,$run]);$db->commit();
  flock($lock,LOCK_UN);fclose($lock);header("Content-Type:text/html;charset=utf-8");echo '<meta charset="utf-8"><title>Import complete</title><body style="font:16px system-ui;max-width:800px;margin:40px auto;padding:20px"><h1>Firestore import complete</h1><pre>'.ucc_imp_h(json_encode(["ok"=>true,"run_id"=>$run,"total_documents"=>array_sum($counts),"collections"=>$counts,"warnings"=>$warnings],JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE)).'</pre><p>Delete this PHP file and remove UCC_IMPORT_KEY from .env now.</p></body>';
 }catch(Throwable $e){if(isset($db)&&$db instanceof PDO&&$db->inTransaction())$db->rollBack();http_response_code(400);header("Content-Type:text/html;charset=utf-8");echo '<meta charset="utf-8"><title>Import error</title><body style="font:16px system-ui;max-width:800px;margin:40px auto;padding:20px"><h1>Import not completed</h1><pre>'.ucc_imp_h($e->getMessage()).'</pre><p>No success is claimed. Check cPanel PHP error log.</p></body>';}
