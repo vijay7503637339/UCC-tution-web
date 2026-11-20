@@ -49,77 +49,61 @@ final class WebController {
   $body='<div class="login-wrap"><div class="login-card"><div class="logo large">U</div><p class="eyebrow">UNIQUE COACHING CLASSES</p><h1>UCC Tuition Manager</h1><p class="muted">Sign in to manage students, fees and attendance.</p>'.$message.$this->flashHtml($flash).'<form method="post" action="/login">'. $this->csrfInput().'<label class="field"><span>Email address</span><input type="email" name="email" required autocomplete="username"></label><label class="field"><span>Password</span><input type="password" name="password" required autocomplete="current-password"></label><button class="btn primary full">Sign in</button></form><p class="muted tiny">Private administration panel · Secure session sign-in</p></div></div>';
   Response::html($this->layout('Login',$body,false));
  }
- private function dashboard():never {
-  $month=$this->monthParam();
-  $s=TuitionService::dashboard($month);
-  $monthLabel=date('F Y',strtotime($month.'-01'));
+  private function dashboard():never {
+  $month=$this->monthParam();$filters=['batch_id'=>$_GET['batch_id']??'','class_name'=>$_GET['class_name']??''];
+  $s=TuitionService::dashboard($month,$filters);$monthLabel=date('F Y',strtotime($month.'-01'));
   $cards=[
-   ['Fees Today',H::money($s['received_today']),'Received on '.date('d M Y')],
+   ['Fees Today',H::money($s['received_today']),'Received today in IST'],
    ['This Month Receiving',H::money($s['received_during_month']),'Actual payments received in '.$monthLabel],
-   ['Active students',number_format((int)$s['active_students']),'Across active child profiles'],
+   ['Active students',number_format((int)$s['active_students']),'Across selected active profiles'],
    ['Expected fee',H::money($s['expected']),'Selected fee month'],
    ['Fee-month collected',H::money($s['collected_for_month']),'Payments allocated to '.$monthLabel],
    ['Pending fees',H::money($s['pending']),'Expected less fee-month payments'],
    ['Overdue fees',H::money($s['overdue']),(int)$s['overdue_count'].' active families overdue'],
    ['New admissions',number_format((int)$s['new_admissions']),'Joined in selected month'],
-   ['Expenses',H::money($s['expenses']),'Paid during selected month'],
-   ['Net received',H::money($s['net']),'Actual receiving minus expenses']
+   ['Expenses',H::money($s['expenses']),'Centre-wide expenses in selected month'],
+   ['Net received',H::money($s['net']),'Filtered receiving minus centre-wide expenses']
   ];
-
-  $body='<section class="welcome"><div><p class="eyebrow light">OVERVIEW</p><h2>Good day, '.H::e(Auth::user()['name']??'Admin').'</h2><p>Here is the tuition centre summary for '.H::e($monthLabel).'.</p></div><form method="get" action="/" class="month-picker"><input type="month" name="month" value="'.H::e($month).'"><button class="btn light-btn">Apply</button></form></section><div class="grid stats">';
+  $body='<section class="welcome"><div><p class="eyebrow light">OVERVIEW</p><h2>Good day, '.H::e(Auth::user()['name']??'Admin').'</h2><p>Here is the tuition centre summary for '.H::e($monthLabel).'.</p></div><form method="get" action="/" class="dashboard-filter"><label class="field"><span>Fee month</span><input type="month" name="month" value="'.H::e($month).'"></label>'.$this->reportingFilterFields($filters).'<button class="btn light-btn">Apply filters</button></form></section><div class="grid stats">';
   foreach($cards as $i=>$card){
    $cardHtml='<article class="stat-card"><div class="stat-top"><span>'.H::e($card[0]).'</span><span class="stat-dot dot-'.($i%7).'"></span></div><strong>'.H::e($card[1]).'</strong><small>'.H::e($card[2]).'</small></article>';
-   $cardHref=$i===0?'/receiving/'.date('Y-m-d'):($i===1?'/receiving?month='.rawurlencode($month):null);
+   $filtered=http_build_query(array_filter(['batch_id'=>$filters['batch_id'],'class_name'=>$filters['class_name']],static fn($v)=>$v!==''&&$v!==null));
+   $cardHref=$i===0?'/receiving/'.date('Y-m-d').($filtered!==''?'?'.$filtered:''):($i===1?'/receiving?'.http_build_query(array_filter(['month'=>$month,'batch_id'=>$filters['batch_id'],'class_name'=>$filters['class_name']],static fn($v)=>$v!==''&&$v!==null)):null);
    $body.=$cardHref!==null?'<a class="stat-card-anchor" href="'.H::e($cardHref).'">'.$cardHtml.'</a>':$cardHtml;
   }
-
-  $body.='</div><div class="grid two section"><section class="panel"><div class="panel-head"><h3>Fee collection status</h3><a href="/fees">View payments</a></div><div class="status-row"><div><strong>'.(int)$s['paid_count'].'</strong><span>Fully paid</span></div><div><strong>'.(int)$s['partial_count'].'</strong><span>Partially paid</span></div><div><strong>'.(int)$s['unpaid_count'].'</strong><span>Unpaid</span></div></div><div class="progress"><span style="width:'.H::e($s['expected']>0?min(100,($s['collected_for_month']/$s['expected'])*100):0).'%"></span></div><p class="muted tiny">Collection progress by fee month. Receiving totals above use the actual payment date.</p></section><section class="panel"><div class="panel-head"><h3>Quick actions</h3></div><div class="quick-links"><a href="/students/new">+ Add student</a><a href="/fees/new">+ Record fee</a><a href="/attendance">Take attendance</a><a href="/enquiries/new">+ Add enquiry</a><a href="/reports">Open reports</a><a href="/reminders">Fee reminders</a></div></section></div>';
-
-  $daily=$s['daily_receiving']??[];
-  $maxDaily=0.0;
-  foreach($daily as $day)$maxDaily=max($maxDaily,(float)$day['amount']);
-  $dailyHtml='';
+  $body.='</div><div class="grid two section"><section class="panel"><div class="panel-head"><h3>Fee collection status</h3><a href="/fees">View payments</a></div><div class="status-row"><div><strong>'.(int)$s['paid_count'].'</strong><span>Fully paid</span></div><div><strong>'.(int)$s['partial_count'].'</strong><span>Partially paid</span></div><div><strong>'.(int)$s['unpaid_count'].'</strong><span>Unpaid</span></div></div><div class="progress"><span style="width:'.H::e($s['expected']>0?min(100,($s['collected_for_month']/$s['expected'])*100):0).'%"></span></div><p class="muted tiny">Collection progress by fee month. Receiving totals use actual payment date in India Standard Time.</p></section><section class="panel"><div class="panel-head"><h3>Quick actions</h3></div><div class="quick-links"><a href="/students/new">+ Add student</a><a href="/fees/new">+ Record fee</a><a href="/attendance">Take attendance</a><a href="/enquiries/new">+ Add enquiry</a><a href="/reports">Open reports</a><a href="/reminders">Fee reminders</a></div></section></div>';
+  $daily=$s['daily_receiving']??[];$maxDaily=0.0;foreach($daily as $day)$maxDaily=max($maxDaily,(float)$day['amount']);$dailyHtml='';
   foreach($daily as $day){
-   $date=new \DateTimeImmutable((string)$day['date']);
-   $amount=(float)$day['amount'];
-   $transactions=(int)$day['transactions'];
-   $width=$maxDaily>0?min(100,($amount/$maxDaily)*100):0;
+   $date=new \DateTimeImmutable((string)$day['date']);$amount=(float)$day['amount'];$transactions=(int)$day['transactions'];$width=$maxDaily>0?min(100,($amount/$maxDaily)*100):0;
    $description=$transactions===0?'No fee received':$transactions.' payment'.($transactions===1?'':'s');
-   $dailyHtml.='<a class="daily-receiving-row daily-receiving-link" href="/receiving/'.H::e($date->format('Y-m-d')).'"><span class="daily-date-badge"><strong>'.H::e($date->format('d')).'</strong><small>'.H::e($date->format('M')).'</small></span><span class="daily-receiving-main"><span class="daily-receiving-top"><span><strong>'.H::e($date->format('D, d M')).'</strong><small>'.H::e($description).'</small></span><strong>'.H::money($amount).'</strong></span><span class="daily-receiving-track"><span style="width:'.H::e($width).'%"></span></span></span></a>';
+   $dayQuery=http_build_query(array_filter(['batch_id'=>$filters['batch_id'],'class_name'=>$filters['class_name']],static fn($v)=>$v!==''&&$v!==null));
+   $href='/receiving/'.$date->format('Y-m-d').($dayQuery!==''?'?'.$dayQuery:'');
+   $dailyHtml.='<a class="daily-receiving-row daily-receiving-link" href="'.H::e($href).'"><span class="daily-date-badge"><strong>'.H::e($date->format('d')).'</strong><small>'.H::e($date->format('M')).'</small></span><span class="daily-receiving-main"><span class="daily-receiving-top"><span><strong>'.H::e($date->format('D, d M')).'</strong><small>'.H::e($description).'</small></span><strong>'.H::money($amount).'</strong></span><span class="daily-receiving-track"><span style="width:'.H::e($width).'%"></span></span></span></a>';
   }
   if($dailyHtml==='')$dailyHtml='<div class="empty">No elapsed days for this selected month yet.</div>';
-
-  $body.='<section class="panel section daily-receiving-panel"><div class="panel-head"><div><h3>Day-wise receiving</h3><p class="muted tiny">Actual cash received by payment date · '.H::e($monthLabel).'</p></div><div class="daily-receiving-total"><small>Month total</small><strong>'.H::money($s['received_during_month']).'</strong></div></div><div class="daily-receiving-list">'.$dailyHtml.'</div></section>';
+  $body.='<section class="panel section daily-receiving-panel"><div class="panel-head"><div><h3>Day-wise receiving</h3><p class="muted tiny">Actual cash received by payment date · '.H::e($monthLabel).' · IST</p></div><div class="daily-receiving-total"><small>Month total</small><strong>'.H::money($s['received_during_month']).'</strong></div></div><div class="daily-receiving-list">'.$dailyHtml.'</div></section>';
   Response::html($this->layout('Dashboard',$body));
  }
  private function receivingDetail(?string $date):never {
-  $timezone=new \DateTimeZone('Asia/Kolkata');
+  $timezone=new \DateTimeZone('Asia/Kolkata');$filters=['batch_id'=>$_GET['batch_id']??'','class_name'=>$_GET['class_name']??''];
   if($date!==null){
    $parsed=\DateTimeImmutable::createFromFormat('!Y-m-d',$date,$timezone);
    if(!$parsed||$parsed->format('Y-m-d')!==$date)Response::html($this->layout('Receiving details','<div class="panel">Invalid payment date.</div>'),400);
-   $start=$date;$end=$parsed->modify('+1 day')->format('Y-m-d');
-   $heading='Payments received on '.$parsed->format('d F Y');$rangeLabel=$parsed->format('d M Y');$backMonth=$parsed->format('Y-m');
+   $start=$date;$end=$parsed->modify('+1 day')->format('Y-m-d');$heading='Payments received on '.$parsed->format('d F Y');$rangeLabel=$parsed->format('d M Y');$backMonth=$parsed->format('Y-m');
   }else{
-   $month=$this->monthParam();$monthStart=new \DateTimeImmutable($month.'-01',$timezone);
-   $start=$monthStart->format('Y-m-d');$end=$monthStart->modify('+1 month')->format('Y-m-d');
+   $month=$this->monthParam();$monthStart=new \DateTimeImmutable($month.'-01',$timezone);$start=$monthStart->format('Y-m-d');$end=$monthStart->modify('+1 month')->format('Y-m-d');
    $heading='Payments received in '.$monthStart->format('F Y');$rangeLabel=$monthStart->format('F Y');$backMonth=$month;
   }
-  $rows=TuitionService::receivedPayments($start,$end);$total=0.0;
-  foreach($rows as $row)$total+=(float)$row['amount'];
-  $body='<div class="toolbar"><a class="btn secondary" href="/?month='.H::e($backMonth).'">← Back to dashboard</a><span class="pill blue">'.count($rows).' transactions</span></div>';
-  $body.='<div class="grid stats three"><article class="stat-card"><span>Total received</span><strong>'.H::money($total).'</strong><small>'.H::e($rangeLabel).'</small></article><article class="stat-card"><span>Transactions</span><strong>'.number_format(count($rows)).'</strong><small>Individual fee receipts</small></article><article class="stat-card"><span>Average receipt</span><strong>'.H::money(count($rows)>0?$total/count($rows):0).'</strong><small>Per transaction</small></article></div>';
-  $body.='<section class="panel section"><div class="panel-head"><div><h3>'.H::e($heading).'</h3><p class="muted tiny">Payment date is shown in India Standard Time (IST).</p></div><a href="/fees">All fee records</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Student</th><th>Class</th><th>Fee month</th><th>Received date & time</th><th>Amount</th><th>Method</th><th>Note</th></tr></thead><tbody>';
-  foreach($rows as $row){
-   $paidAt=new \DateTimeImmutable((string)$row['paid_on_local'],$timezone);
-   $feeMonth=date('F Y',strtotime((string)$row['fee_month']));
-   $student='<a href="/students/'.(int)$row['student_id'].'">'.H::e($row['student_name']??'Unknown student').'</a>';
-   $body.='<tr><td>#'.H::e($row['id']).'</td><td><strong>'.$student.'</strong></td><td>'.H::e($row['student_class']??'').'</td><td>'.H::e($feeMonth).'</td><td>'.H::e($paidAt->format('d M Y, h:i A')).'</td><td><strong>'.H::money($row['amount']).'</strong></td><td>'.H::e($row['method']??'').'</td><td>'.H::e($row['note']??'').'</td></tr>';
-  }
+  $rows=TuitionService::receivedPayments($start,$end,$filters);$total=0.0;foreach($rows as $row)$total+=(float)$row['amount'];
+  $query=http_build_query(array_filter(['month'=>$backMonth,'batch_id'=>$filters['batch_id'],'class_name'=>$filters['class_name']],static fn($v)=>$v!==''&&$v!==null));
+  $body='<div class="toolbar"><a class="btn secondary" href="/?'.H::e($query).'">← Back to dashboard</a><span class="pill blue">'.count($rows).' transactions</span></div>';
+  $body.='<div class="grid stats three"><article class="stat-card"><span>Total received</span><strong>'.H::money($total).'</strong><small>'.H::e($rangeLabel).' · IST</small></article><article class="stat-card"><span>Transactions</span><strong>'.number_format(count($rows)).'</strong><small>Individual fee receipts</small></article><article class="stat-card"><span>Average receipt</span><strong>'.H::money(count($rows)>0?$total/count($rows):0).'</strong><small>Per transaction</small></article></div>';
+  $body.='<section class="panel section"><div class="panel-head"><div><h3>'.H::e($heading).'</h3><p class="muted tiny">Original Firestore timestamps are converted to India Standard Time.</p></div><a href="/fees">All fee records</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Student</th><th>Class</th><th>Fee month</th><th>Received date & time</th><th>Amount</th><th>Method</th><th>Note</th></tr></thead><tbody>';
+  foreach($rows as $row){$paidAt=new \DateTimeImmutable((string)$row['paid_on_local'],$timezone);$feeMonth=date('F Y',strtotime((string)$row['fee_month']));$student='<a href="/students/'.(int)$row['student_id'].'">'.H::e($row['student_name']??'Unknown student').'</a>';$body.='<tr><td>#'.H::e($row['id']).'</td><td><strong>'.$student.'</strong></td><td>'.H::e($row['student_class']??'').'</td><td>'.H::e($feeMonth).'</td><td>'.H::e($paidAt->format('d M Y, h:i A')).'</td><td><strong>'.H::money($row['amount']).'</strong></td><td>'.H::e($row['method']??'').'</td><td>'.H::e($row['note']??'').'</td></tr>';}
   if(!$rows)$body.='<tr><td colspan="8" class="empty">No fee transactions were received on this date.</td></tr>';
-  $body.='</tbody></table></div></section>';
-  Response::html($this->layout('Receiving details',$body));
+  $body.='</tbody></table></div></section>';Response::html($this->layout('Receiving details',$body));
  }
- private function resourceList(string $key):never {
+private function resourceList(string $key):never {
   $filters=$_GET;$rows=TuitionService::all($key,$filters);$title=self::TITLES[$key];
   $body='<form method="get" class="resource-filter-form"><div class="resource-filter-main"><label class="field"><span>Search</span><input type="search" name="q" value="'.H::e($filters['q']??'').'" placeholder="Search '.H::e(strtolower($title)).'"></label><div class="filter-actions"><button class="btn secondary">Search / Apply</button><a class="btn ghost" href="/'.$key.'">Reset</a>';
   if($key!=='action-logs')$body.='<a class="btn primary" href="/'.$key.'/new">+ Add '.rtrim($title,'s').'</a>';
@@ -219,7 +203,7 @@ final class WebController {
  }
  private function batchStudents(int $id):never {
   $batch=TuitionService::find('batches',$id);if(!$batch)Response::html($this->layout('Batch students','<div class="panel">Batch not found.</div>'),404);
-  $rows=TuitionService::batchStudents($id);$total=count($rows);$families=count(array_unique(array_map(static fn($r)=>(int)$r['family_id'],$rows)));$fee=0.0;foreach($rows as $r)$fee+=(float)$r['monthly_fee'];
+  $rows=TuitionService::batchStudents($id);$total=count($rows);$families=count(array_unique(array_map(static fn($r)=>(int)$r['family_id'],$rows)));$feeByFamily=[];foreach($rows as $r)$feeByFamily[(int)$r['family_id']]=(float)$r['monthly_fee'];$fee=array_sum($feeByFamily);
   $body='<div class="toolbar"><a class="btn secondary" href="/batches">← Back to batches</a><a class="btn primary" href="/students?batch_id='.$id.'">View family records</a></div><div class="panel section"><div class="panel-head"><div><p class="eyebrow">BATCH STUDENT REGISTER</p><h2>'.H::e($batch['name']).'</h2><p class="muted">'.H::e($batch['subject']).' · '.H::e($batch['schedule']).'</p></div><span class="pill blue">'.number_format($total).' students</span></div></div><div class="grid stats three section"><article class="stat-card"><span>Students</span><strong>'.number_format($total).'</strong><small>Active child profiles in this batch</small></article><article class="stat-card"><span>Families</span><strong>'.number_format($families).'</strong><small>Unique parent / family records</small></article><article class="stat-card"><span>Linked monthly fee</span><strong>'.H::money($fee).'</strong><small>Family monthly fee counted once per assigned student</small></article></div><section class="panel section"><div class="panel-head"><h3>Student list</h3><span class="muted">'.number_format($total).' active students</span></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Class</th><th>Parent / family</th><th>Guardian phone</th><th>Monthly fee</th><th>Profile</th></tr></thead><tbody>';
   foreach($rows as $r)$body.='<tr><td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['family_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::money($r['monthly_fee']).'</td><td><a href="/students/'.(int)$r['family_id'].'">Open family</a></td></tr>';
   if(!$rows)$body.='<tr><td colspan="6" class="empty">No active students are assigned to this batch.</td></tr>';
@@ -228,7 +212,7 @@ final class WebController {
  private function resourceCells(string $key,array $r):string {
   $actions=static fn($id)=>'<td class="actions"><a href="/'.$key.'/'.rawurlencode((string)$id).'/edit">Edit</a><form method="post" action="/'.$key.'/'.rawurlencode((string)$id).'/delete" onsubmit="return confirm(\'Delete this record?\')">'.self::csrfStatic().'<button class="link danger">Delete</button></form></td>';
   return match($key){
-   'students'=>'<td><strong><a href="/students/'.(int)$r['id'].'">'.H::e($r['name']).'</a></strong><small class="subline">'.H::e($r['guardian_phone']).'</small></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::e($this->lookupName('batches',$r['batch_id']??null)).'</td><td>'.H::money($r['monthly_fee']).'</td><td>'.number_format(count(array_filter($r['children']??[],static fn($c)=>(int)($c['is_active']??0)===1))).'</td><td>'.H::e($r['due_day']).'</td><td><span class="pill '.($r['status']==='active'?'green':'gray').'">'.H::e(ucfirst($r['status'])).'</span></td>'.$actions($r['id']),
+   'students'=>'<td><strong><a href="/students/'.(int)$r['id'].'">'.H::e($r['name']).'</a></strong><small class="subline">'.H::e($r['guardian_phone']).'</small></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::e($this->lookupName('batches',$r['batch_id']??null)).'</td><td>'.H::money($r['monthly_fee']).'</td><td>'.number_format(($r['status']??'')==='active'?count(array_filter($r['children']??[],static fn($c)=>(int)($c['is_active']??0)===1)):0).'</td><td>'.H::e($r['due_day']).'</td><td><span class="pill '.($r['status']==='active'?'green':'gray').'">'.H::e(ucfirst($r['status'])).'</span></td>'.$actions($r['id']),
    'batches'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['schedule']).'</td><td>'.H::e($this->lookupName('teachers',$r['teacher_id']??null)).'</td><td><a class="count-link" href="/batches/'.(int)$r['id'].'/students"><strong>'.number_format((int)($r['student_count']??0)).'</strong><small>View students</small></a></td>'.$actions($r['id']),
    'teachers'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['phone']).'</td><td><a href="/batches?teacher_id='.(int)$r['id'].'">'.number_format((int)($r['batch_count']??0)).' batches</a></td>'.$actions($r['id']),
    'fees'=>'<td>#'.H::e($r['id']).'</td><td>'.H::e($this->lookupName('students',$r['student_id'])).'</td><td>'.H::date($r['fee_month']).'</td><td>'.$this->paymentDateLink((string)$r['paid_on']).'</td><td><strong>'.H::money($r['amount']).'</strong></td><td>'.H::e($r['method']).'</td>'.$actions($r['id']),
@@ -347,26 +331,27 @@ final class WebController {
  private function delete(string $key,string $id):never {
   H::verifyCsrf();try{TuitionService::delete($key,$id);H::flash('success',$key==='students'?'Student deleted or marked inactive.':'Record deleted.');}catch(\Throwable $e){H::flash('error','Could not delete: '.$e->getMessage());}Response::redirect('/'.$key);
  }
- private function attendance(string $method):never {
-  if($method==='POST'){$this->saveAttendance();}
-  $batches=TuitionService::all('batches');$batchId=(int)($_GET['batch_id']??0);$date=(string)($_GET['date']??date('Y-m-d'));
-  $students=$batchId?TuitionService::attendanceStudents($batchId):[];$sessions=TuitionService::all('attendance');
+  private function attendance(string $method):never {
+  if($method==='POST')$this->saveAttendance();
+  $batches=TuitionService::all('batches');$batchId=(int)($_GET['batch_id']??0);$date=(string)($_GET['date']??date('Y-m-d'));$students=$batchId?TuitionService::attendanceStudents($batchId):[];
+  $historyFilters=['batch_id'=>$_GET['history_batch_id']??'','date_from'=>$_GET['history_from']??'','date_to'=>$_GET['history_to']??'','q'=>$_GET['history_q']??''];$sessions=TuitionService::all('attendance',$historyFilters);
+  $present=array_sum(array_map(static fn($s)=>(int)$s['present_count'],$sessions));$absent=array_sum(array_map(static fn($s)=>(int)$s['absent_count'],$sessions));$marked=array_sum(array_map(static fn($s)=>(int)$s['total_students'],$sessions));
   $body='<div class="grid two"><section class="panel"><div class="panel-head"><h3>Take attendance</h3><span class="pill blue">Daily register</span></div><form method="get" action="/attendance" class="inline-form"><label class="field"><span>Batch</span><select name="batch_id" required><option value="">Select batch</option>';
-  foreach($batches as $b)$body.='<option value="'.(int)$b['id'].'"'.($batchId===(int)$b['id']?' selected':'').'>'.H::e($b['name']).'</option>';
+  foreach($batches as $b)$body.='<option value="'.(int)$b['id'].'"'.($batchId===(int)$b['id']?' selected':'').'>'.H::e($b['name']).' · '.(int)($b['student_count']??0).' students</option>';
   $body.='</select></label>'.H::field('date','Date',$date,'date').'<button class="btn secondary">Load students</button></form>';
-  if($batchId&&$students){
-   $body.='<form method="post" action="/attendance" class="attendance-form">'.$this->csrfInput().'<input type="hidden" name="batch_id" value="'.$batchId.'"><input type="hidden" name="session_date" value="'.H::e($date).'"><div class="table-wrap"><table><thead><tr><th>Student</th><th>Class</th><th>Status</th></tr></thead><tbody>';
+  if($batchId&&$students){$body.='<div class="pill blue">'.count($students).' active students in this batch</div><form method="post" action="/attendance" class="attendance-form">'.$this->csrfInput().'<input type="hidden" name="batch_id" value="'.$batchId.'"><input type="hidden" name="session_date" value="'.H::e($date).'"><div class="table-wrap"><table><thead><tr><th>Student</th><th>Class</th><th>Status</th></tr></thead><tbody>';
    foreach($students as $s)$body.='<tr><td>'.H::e($s['name']).'</td><td>'.H::e($s['class_name']).'</td><td><select name="records['.(int)$s['id'].']"><option value="present">Present</option><option value="absent">Absent</option><option value="leave">Leave</option></select></td></tr>';
    $body.='</tbody></table></div><button class="btn primary">Save attendance</button></form>';
-  } elseif($batchId){$body.='<div class="empty">No active child profiles found in this batch. Assign students to this batch first.</div>';}
-  else{$body.='<p class="muted">Choose a batch and date to load its active students.</p>';}
-  $body.='</section><section class="panel"><div class="panel-head"><h3>Attendance history</h3></div><div class="history-list">';
-  foreach(array_slice($sessions,0,12) as $s)$body.='<a class="history-item" href="/attendance/'.rawurlencode($s['id']).'"><span><strong>'.H::e($s['batch_name']).'</strong><small>'.H::date($s['session_date']).'</small></span><span class="pill green">'.(int)$s['present_count'].' present</span></a>';
-  if(!$sessions)$body.='<p class="empty">No attendance sessions yet.</p>';
-  $body.='</div></section></div>';
-  Response::html($this->layout('Attendance',$body));
+  }elseif($batchId)$body.='<div class="empty">No active child profiles found in this batch. Assign students to this batch first.</div>';
+  else $body.='<p class="muted">Choose a batch and date to load its active students.</p>';
+  $body.='</section><section class="panel"><div class="panel-head"><h3>Attendance history</h3><span class="pill blue">'.number_format(count($sessions)).' sessions</span></div><form method="get" class="attendance-history-filter"><label class="field"><span>Batch</span><select name="history_batch_id"><option value="">All batches</option>';
+  foreach($batches as $b)$body.='<option value="'.(int)$b['id'].'"'.((string)$historyFilters['batch_id']===(string)$b['id']?' selected':'').'>'.H::e($b['name']).'</option>';
+  $body.='</select></label>'.$this->filterInput('history_from','From date',$historyFilters['date_from'],'date').$this->filterInput('history_to','To date',$historyFilters['date_to'],'date').$this->filterInput('history_q','Batch name',$historyFilters['q'],'text').'<button class="btn secondary">Filter history</button><a class="btn ghost" href="/attendance">Reset</a></form><div class="grid stats three section"><article class="stat-card"><span>Sessions</span><strong>'.number_format(count($sessions)).'</strong><small>Filtered records</small></article><article class="stat-card"><span>Present marks</span><strong>'.number_format($present).'</strong><small>Across filtered sessions</small></article><article class="stat-card"><span>Absent marks</span><strong>'.number_format($absent).'</strong><small>'.number_format($marked).' total marked students</small></article></div><div class="history-list">';
+  foreach(array_slice($sessions,0,20) as $s)$body.='<a class="history-item" href="/attendance/'.rawurlencode($s['id']).'"><span><strong>'.H::e($s['batch_name']).'</strong><small>'.H::date($s['session_date']).' · '.(int)$s['total_students'].' students</small></span><span class="pill green">'.(int)$s['present_count'].' present</span></a>';
+  if(!$sessions)$body.='<p class="empty">No attendance sessions match these filters.</p>';
+  $body.='</div></section></div>';Response::html($this->layout('Attendance',$body));
  }
- private function saveAttendance():never {
+private function saveAttendance():never {
   H::verifyCsrf();try{$id=TuitionService::save('attendance',['batch_id'=>(int)($_POST['batch_id']??0),'session_date'=>$_POST['session_date']??date('Y-m-d'),'records'=>$_POST['records']??[]]);H::flash('success','Attendance saved.');Response::redirect('/attendance/'.rawurlencode((string)$id));}catch(\Throwable $e){H::flash('error',$e->getMessage());Response::redirect('/attendance');}
  }
  private function attendanceDetail(string $id):never {
@@ -375,51 +360,50 @@ final class WebController {
   foreach($rows as $r)$body.='<tr><td>'.H::e($r['name']??'Unknown').'</td><td>'.H::e($r['class_name']??'').'</td><td><span class="pill '.($r['attendance_status']==='present'?'green':'gray').'">'.H::e(ucfirst($r['attendance_status'])).'</span></td></tr>';
   $body.='</tbody></table></div></div>';Response::html($this->layout('Attendance details',$body));
  }
- private function reports():never {
-  $month=$this->monthParam();$d=TuitionService::dashboard($month);$fees=TuitionService::all('fees',['month'=>$month]);
-  $body='<div class="toolbar"><form method="get" class="search-form"><input type="month" name="month" value="'.H::e($month).'"><button class="btn secondary">Show report</button></form><a class="btn primary" href="/reports?month='.H::e($month).'&export=csv">Export CSV</a></div><div class="grid stats three">';
-  foreach([['Expected',H::money($d['expected'])],['Fee month collected',H::money($d['collected_for_month'])],['Pending',H::money($d['pending'])],['Overdue',H::money($d['overdue'])],['Received in month',H::money($d['received_during_month'])],['Expenses',H::money($d['expenses'])]] as $c)$body.='<article class="stat-card"><span>'.H::e($c[0]).'</span><strong>'.H::e($c[1]).'</strong></article>';
+  private function reports():never {
+  $month=$this->monthParam();$filters=['batch_id'=>$_GET['batch_id']??'','class_name'=>$_GET['class_name']??''];$d=TuitionService::dashboard($month,$filters);$fees=TuitionService::all('fees',['month'=>$month]+$filters);
+  $body='<form method="get" class="resource-filter-form"><div class="resource-filter-main"><label class="field"><span>Fee month</span><input type="month" name="month" value="'.H::e($month).'"></label><div class="filter-actions"><button class="btn secondary">Apply filters</button><a class="btn ghost" href="/reports">Reset</a><a class="btn primary" href="/reports?'.H::e(http_build_query(['month'=>$month,'batch_id'=>$filters['batch_id'],'class_name'=>$filters['class_name'],'export'=>'csv'])).'">Export CSV</a></div></div><details class="advanced-filter" open><summary>Advanced filters</summary><div class="filter-grid">'.$this->reportingFilterFields($filters).'</div></details></form><div class="grid stats three section">';
+  foreach([['Expected',H::money($d['expected'])],['Fee month collected',H::money($d['collected_for_month'])],['Pending',H::money($d['pending'])],['Overdue',H::money($d['overdue'])],['Received in month',H::money($d['received_during_month'])],['Centre-wide expenses',H::money($d['expenses'])]] as $card)$body.='<article class="stat-card"><span>'.H::e($card[0]).'</span><strong>'.H::e($card[1]).'</strong></article>';
   $body.='</div><div class="panel section"><div class="panel-head"><h3>Payment transactions</h3><a href="/fees">Manage fees</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Student</th><th>Fee month</th><th>Paid on</th><th>Amount</th><th>Method</th></tr></thead><tbody>';
-  foreach($fees as $f)$body.='<tr><td>#'.H::e($f['id']).'</td><td>'.H::e($this->lookupName('students',$f['student_id'])).'</td><td>'.H::date($f['fee_month']).'</td><td>'.$this->paymentDateLink((string)$f['paid_on']).'</td><td>'.H::money($f['amount']).'</td><td>'.H::e($f['method']).'</td></tr>';
-  if(!$fees)$body.='<tr><td colspan="6" class="empty">No transactions for this fee month.</td></tr>';
-  $body.='</tbody></table></div></div>';
-  if(($_GET['export']??'')==='csv')$this->exportCsv($month);
-  Response::html($this->layout('Reports & Analytics',$body));
+  foreach($fees as $fee)$body.='<tr><td>#'.H::e($fee['id']).'</td><td>'.H::e($this->lookupName('students',$fee['student_id'])).'</td><td>'.H::date($fee['fee_month']).'</td><td>'.$this->paymentDateLink((string)$fee['paid_on']).'</td><td>'.H::money($fee['amount']).'</td><td>'.H::e($fee['method']).'</td></tr>';
+  if(!$fees)$body.='<tr><td colspan="6" class="empty">No transactions for the selected filters.</td></tr>';
+  $body.='</tbody></table></div></div>';if(($_GET['export']??'')==='csv')$this->exportCsv($month,$filters);Response::html($this->layout('Reports & Analytics',$body));
  }
- private function exportCsv(string $month):never {
-  $rows=TuitionService::all('fees',['month'=>$month]);header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="ucc-fees-'.$month.'.csv"');$out=fopen('php://output','w');fputcsv($out,['Receipt ID','Student ID','Student','Fee Month','Paid On','Amount','Method','Note']);
+ private function exportCsv(string $month,array $filters=[]):never {
+  $rows=TuitionService::all('fees',['month'=>$month]+$filters);header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="ucc-fees-'.$month.'.csv"');$out=fopen('php://output','w');fputcsv($out,['Receipt ID','Student ID','Student','Fee Month','Paid On (IST)','Amount','Method','Note']);
   foreach($rows as $r)fputcsv($out,[$r['id'],$r['student_id'],$this->lookupName('students',$r['student_id']),$r['fee_month'],$r['paid_on'],$r['amount'],$r['method'],$r['note']]);fclose($out);exit;
  }
  private function analytics():never {
-  $month=$this->monthParam();$data=AnalyticsService::overview($month);$totals=$data['totals'];$body='<div class="toolbar"><form method="get" class="search-form"><input type="month" name="month" value="'.H::e($month).'"><button class="btn secondary">Apply</button></form><span class="pill blue">'.(int)$totals['classes'].' classes</span></div>';
-  $body.='<div class="grid stats three">';
+  $month=$this->monthParam();$filters=['batch_id'=>$_GET['batch_id']??'','class_name'=>$_GET['class_name']??''];$data=AnalyticsService::overview($month,$filters);$totals=$data['totals'];
+  $body='<form method="get" class="resource-filter-form"><div class="resource-filter-main"><label class="field"><span>Month</span><input type="month" name="month" value="'.H::e($month).'"></label><div class="filter-actions"><button class="btn secondary">Apply filters</button><a class="btn ghost" href="/analytics">Reset</a></div></div><details class="advanced-filter" open><summary>Advanced filters</summary><div class="filter-grid">'.$this->reportingFilterFields($filters).'</div></details></form><div class="toolbar section"><span class="pill blue">'.(int)$totals['classes'].' classes</span></div><div class="grid stats three">';
   foreach([['Students',number_format((int)$totals['students'])],['Student families',number_format((int)$totals['families'])],['Expected fees',H::money($totals['expected'])],['Collected',H::money($totals['collected'])],['Present marks',number_format((int)$totals['present'])],['Absent marks',number_format((int)$totals['absent'])]] as $card)$body.='<article class="stat-card"><span>'.H::e($card[0]).'</span><strong>'.H::e($card[1]).'</strong></article>';
   $body.='</div><section class="panel section"><div class="panel-head"><h3>Class-wise performance</h3><span class="muted">Fee month '.H::e(date('F Y',strtotime($month.'-01'))).'</span></div><div class="table-wrap"><table><thead><tr><th>Class</th><th>Families</th><th>Students</th><th>Expected fees</th><th>Collected</th><th>Present</th><th>Absent</th><th>Leave</th><th>Attendance rate</th></tr></thead><tbody>';
   foreach($data['classes'] as $r){$marked=(int)$r['present']+(int)$r['absent']+(int)$r['leave'];$rate=$marked>0?round(((int)$r['present']/$marked)*100):0;$body.='<tr><td><strong>'.H::e($r['class_name']).'</strong></td><td>'.(int)$r['families'].'</td><td>'.(int)$r['students'].'</td><td>'.H::money($r['expected']).'</td><td>'.H::money($r['collected']).'</td><td>'.(int)$r['present'].'</td><td>'.(int)$r['absent'].'</td><td>'.(int)$r['leave'].'</td><td><div class="rate"><span style="width:'.$rate.'%"></span></div><small class="subline">'.$rate.'%</small></td></tr>';}
-  if(!$data['classes'])$body.='<tr><td colspan="9" class="empty">No class data available for this month.</td></tr>';
-  $body.='</tbody></table></div><p class="muted tiny">Attendance rate is based on recorded present, absent and leave marks for the selected calendar month.</p></section>';
-  Response::html($this->layout('Student Analytics',$body));
+  if(!$data['classes'])$body.='<tr><td colspan="9" class="empty">No class data for the selected filters.</td></tr>';
+  $body.='</tbody></table></div><p class="muted tiny">Attendance rate is based on recorded present, absent and leave marks for the selected calendar month.</p></section>';Response::html($this->layout('Student Analytics',$body));
  }
  private function reminders():never {
-  $month=$this->monthParam();$items=TuitionService::reminders($month);$body='<div class="toolbar"><form method="get" class="search-form"><input type="month" name="month" value="'.H::e($month).'"><button class="btn secondary">Apply</button></form><span class="pill amber">'.count($items).' students with balance</span></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Guardian phone</th><th>Fee</th><th>Paid</th><th>Pending</th><th>Due date</th><th>Reminder</th></tr></thead><tbody>';
+  $month=$this->monthParam();$filters=['batch_id'=>$_GET['batch_id']??'','class_name'=>$_GET['class_name']??''];$items=TuitionService::reminders($month,$filters);$pending=array_sum(array_map(static fn($s)=>(float)$s['pending_amount'],$items));
+  $body='<form method="get" class="resource-filter-form"><div class="resource-filter-main"><label class="field"><span>Fee month</span><input type="month" name="month" value="'.H::e($month).'"></label><div class="filter-actions"><button class="btn secondary">Apply filters</button><a class="btn ghost" href="/reminders">Reset</a></div></div><details class="advanced-filter" open><summary>Advanced filters</summary><div class="filter-grid">'.$this->reportingFilterFields($filters).'</div></details></form><div class="grid stats three section"><article class="stat-card"><span>Students with balance</span><strong>'.number_format(count($items)).'</strong><small>Filtered students</small></article><article class="stat-card"><span>Total pending fees</span><strong>'.H::money($pending).'</strong><small>Amount to be collected</small></article><article class="stat-card"><span>Fee month</span><strong>'.H::e(date('M Y',strtotime($month.'-01'))).'</strong><small>Selected period</small></article></div><div class="table-wrap"><table><thead><tr><th>Student</th><th>Guardian phone</th><th>Fee</th><th>Paid</th><th>Pending</th><th>Due date</th><th>Reminder</th></tr></thead><tbody>';
   foreach($items as $s){$phone=preg_replace('/\D+/','',(string)$s['guardian_phone']);$phone=(strlen($phone)===10?'91':'').$phone;$message='Hello, fee reminder for '.$s['name'].'. Pending amount: INR '.number_format((float)$s['pending_amount'],0).' for '.date('M Y',strtotime($month.'-01')).'. Please clear it soon. - UCC';$url='https://wa.me/'.$phone.'?text='.rawurlencode($message);
    $body.='<tr><td><strong>'.H::e($s['name']).'</strong></td><td>'.H::e($s['guardian_phone']).'</td><td>'.H::money($s['monthly_fee']).'</td><td>'.H::money($s['paid_for_month']).'</td><td><strong>'.H::money($s['pending_amount']).'</strong></td><td>'.H::date($s['due_date']).($s['days_overdue']>0?'<small class="subline danger-text">'.$s['days_overdue'].' days overdue</small>':'').'</td><td>'.($phone?' <a class="btn whatsapp" target="_blank" rel="noopener" href="'.H::e($url).'">WhatsApp</a>':'<span class="muted">No phone</span>').'</td></tr>';
   }
-  if(!$items)$body.='<tr><td class="empty" colspan="7">No pending balances for this fee month.</td></tr>';
+  if(!$items)$body.='<tr><td class="empty" colspan="7">No pending balances match these filters.</td></tr>';
   $body.='</tbody></table></div><p class="muted tiny">WhatsApp opens a pre-filled draft. A person must review and press Send; no automatic message is sent.</p>';Response::html($this->layout('Fee Reminders',$body));
  }
  private function assistant():never {
-  $month=$this->monthParam();$d=TuitionService::dashboard($month);$question=trim((string)($_POST['question']??''));$answer='';
+  $month=$this->monthParam();$filters=['batch_id'=>$_GET['batch_id']??'','class_name'=>$_GET['class_name']??''];$d=TuitionService::dashboard($month,$filters);$question=trim((string)($_POST['question']??''));$answer='';
   if($_SERVER['REQUEST_METHOD']==='POST'){H::verifyCsrf();$q=strtolower($question);$answer=match(true){
-   str_contains($q,'pending')||str_contains($q,'बाकी')=>'Selected month pending fees are '.H::money($d['pending']).', with '.(int)$d['unpaid_count'].' unpaid and '.(int)$d['partial_count'].' partially paid students.',
-   str_contains($q,'overdue')||str_contains($q,'लेट')=>'Overdue balance is '.H::money($d['overdue']).' across '.(int)$d['overdue_count'].' students.',
+   str_contains($q,'pending')||str_contains($q,'बाकी')=>'Selected month pending fees are '.H::money($d['pending']).', with '.(int)$d['unpaid_count'].' unpaid and '.(int)$d['partial_count'].' partially paid families.',
+   str_contains($q,'overdue')||str_contains($q,'लेट')=>'Overdue balance is '.H::money($d['overdue']).' across '.(int)$d['overdue_count'].' families.',
    str_contains($q,'collection')||str_contains($q,'collected')||str_contains($q,'जमा')=>'Collected for the selected fee month: '.H::money($d['collected_for_month']).'. Payments received during the calendar month: '.H::money($d['received_during_month']).'.',
-   str_contains($q,'admission')||str_contains($q,'admission')||str_contains($q,'admission')=>'New admissions in this month: '.(int)$d['new_admissions'].'.',
+   str_contains($q,'admission')=>'New admissions in this month: '.(int)$d['new_admissions'].'.',
    default=>'For '.date('F Y',strtotime($month.'-01')).': expected '.H::money($d['expected']).', collected '.H::money($d['collected_for_month']).', pending '.H::money($d['pending']).', overdue '.H::money($d['overdue']).'. Ask about pending fees, overdue fees or collection.'
   };}
-  $body='<div class="grid two"><section class="panel"><p class="eyebrow">UCC FEE AGENT · RULE-BASED</p><h2>Ask about your tuition data</h2><p class="muted">This first web version uses deterministic MySQL calculations from the selected month. It does not call an external AI service or modify any financial records.</p><form method="post" action="/assistant">'.$this->csrfInput().'<label class="field"><span>Your question</span><textarea name="question" rows="3" placeholder="How much fee is pending this month?">'.H::e($question).'</textarea></label><button class="btn primary">Analyse</button></form>'.($answer?'<div class="answer"><strong>Analysis</strong><p>'.H::e($answer).'</p></div>':'').'</section><section class="panel"><div class="panel-head"><h3>Current month snapshot</h3><input type="month" value="'.H::e($month).'" onchange="location.href=\'/assistant?month=\'+this.value"></div><div class="insight-list"><div><span>Expected</span><strong>'.H::money($d['expected']).'</strong></div><div><span>Collected</span><strong>'.H::money($d['collected_for_month']).'</strong></div><div><span>Pending</span><strong>'.H::money($d['pending']).'</strong></div><div><span>Overdue</span><strong>'.H::money($d['overdue']).'</strong></div></div></section></div>';Response::html($this->layout('Fee Management Agent',$body));
+  $context=http_build_query(array_filter(['month'=>$month,'batch_id'=>$filters['batch_id'],'class_name'=>$filters['class_name']],static fn($v)=>$v!==''&&$v!==null));
+  $body='<form method="get" class="resource-filter-form"><div class="resource-filter-main"><label class="field"><span>Fee month</span><input type="month" name="month" value="'.H::e($month).'"></label><div class="filter-actions"><button class="btn secondary">Apply filters</button><a class="btn ghost" href="/assistant">Reset</a></div></div><details class="advanced-filter" open><summary>Advanced filters</summary><div class="filter-grid">'.$this->reportingFilterFields($filters).'</div></details></form><div class="grid two section"><section class="panel"><p class="eyebrow">UCC FEE AGENT · RULE-BASED</p><h2>Ask about your tuition data</h2><p class="muted">This first web version uses deterministic MySQL calculations from the selected period and filters. It does not call an external AI service or modify financial records.</p><form method="post" action="/assistant?'.H::e($context).'">'.$this->csrfInput().'<label class="field"><span>Your question</span><textarea name="question" rows="3" placeholder="How much fee is pending this month?">'.H::e($question).'</textarea></label><button class="btn primary">Analyse</button></form>'.($answer?'<div class="answer"><strong>Analysis</strong><p>'.H::e($answer).'</p></div>':'').'</section><section class="panel"><div class="panel-head"><h3>Current month snapshot</h3></div><div class="insight-list"><div><span>Expected</span><strong>'.H::money($d['expected']).'</strong></div><div><span>Collected</span><strong>'.H::money($d['collected_for_month']).'</strong></div><div><span>Pending</span><strong>'.H::money($d['pending']).'</strong></div><div><span>Overdue</span><strong>'.H::money($d['overdue']).'</strong></div><div><span>Actual receiving</span><strong>'.H::money($d['received_during_month']).'</strong></div></div></section></div>';Response::html($this->layout('Fee Management Agent',$body));
  }
- private function paymentDateLink(?string $paidOn):string {
+private function paymentDateLink(?string $paidOn):string {
   if(!$paidOn)return '—';
   $date=substr($paidOn,0,10);
   return '<a class="payment-date-link" href="/receiving/'.H::e($date).'">'.H::dateTime($paidOn).'</a>';
