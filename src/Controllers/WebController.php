@@ -47,20 +47,44 @@ final class WebController {
   Response::html($this->layout('Login',$body,false));
  }
  private function dashboard():never {
-  $month=$this->monthParam();$s=TuitionService::dashboard($month);
+  $month=$this->monthParam();
+  $s=TuitionService::dashboard($month);
+  $monthLabel=date('F Y',strtotime($month.'-01'));
   $cards=[
+   ['Fees Today',H::money($s['received_today']),'Received on '.date('d M Y')],
+   ['This Month Receiving',H::money($s['received_during_month']),'Actual payments received in '.$monthLabel],
    ['Active students',number_format((int)$s['active_students']),'Across active child profiles'],
    ['Expected fee',H::money($s['expected']),'Selected fee month'],
-   ['Collected',H::money($s['collected_for_month']),'Allocated to selected fee month'],
-   ['Pending',H::money($s['pending']),'Expected less payments'],
-   ['Overdue',H::money($s['overdue']),(int)$s['overdue_count'].' students overdue'],
+   ['Fee-month collected',H::money($s['collected_for_month']),'Payments allocated to '.$monthLabel],
+   ['Pending fees',H::money($s['pending']),'Expected less fee-month payments'],
+   ['Overdue fees',H::money($s['overdue']),(int)$s['overdue_count'].' active families overdue'],
    ['New admissions',number_format((int)$s['new_admissions']),'Joined in selected month'],
    ['Expenses',H::money($s['expenses']),'Paid during selected month'],
-   ['Net received',H::money($s['net']),'Received minus expenses']
+   ['Net received',H::money($s['net']),'Actual receiving minus expenses']
   ];
-  $body='<section class="welcome"><div><p class="eyebrow light">OVERVIEW</p><h2>Good day, '.H::e(Auth::user()['name']??'Admin').'</h2><p>Here is the tuition centre summary for '.H::e(date('F Y',strtotime($month.'-01'))).'.</p></div><form method="get" action="/" class="month-picker"><input type="month" name="month" value="'.H::e($month).'"><button class="btn light-btn">Apply</button></form></section><div class="grid stats">';
-  foreach($cards as $i=>$card)$body.='<article class="stat-card"><div class="stat-top"><span>'.H::e($card[0]).'</span><span class="stat-dot dot-'.$i.'"></span></div><strong>'.H::e($card[1]).'</strong><small>'.H::e($card[2]).'</small></article>';
-  $body.='</div><div class="grid two section"><section class="panel"><div class="panel-head"><h3>Fee collection status</h3><a href="/fees">View payments</a></div><div class="status-row"><div><strong>'.(int)$s['paid_count'].'</strong><span>Fully paid</span></div><div><strong>'.(int)$s['partial_count'].'</strong><span>Partially paid</span></div><div><strong>'.(int)$s['unpaid_count'].'</strong><span>Unpaid</span></div></div><div class="progress"><span style="width:'.H::e($s['expected']>0?min(100,($s['collected_for_month']/$s['expected'])*100):0).'%"></span></div><p class="muted tiny">Collection progress for the selected fee month.</p></section><section class="panel"><div class="panel-head"><h3>Quick actions</h3></div><div class="quick-links"><a href="/students/new">+ Add student</a><a href="/fees/new">+ Record fee</a><a href="/attendance">Take attendance</a><a href="/enquiries/new">+ Add enquiry</a><a href="/reports">Open reports</a><a href="/reminders">Fee reminders</a></div></section></div>';
+
+  $body='<section class="welcome"><div><p class="eyebrow light">OVERVIEW</p><h2>Good day, '.H::e(Auth::user()['name']??'Admin').'</h2><p>Here is the tuition centre summary for '.H::e($monthLabel).'.</p></div><form method="get" action="/" class="month-picker"><input type="month" name="month" value="'.H::e($month).'"><button class="btn light-btn">Apply</button></form></section><div class="grid stats">';
+  foreach($cards as $i=>$card){
+   $body.='<article class="stat-card"><div class="stat-top"><span>'.H::e($card[0]).'</span><span class="stat-dot dot-'.($i%7).'"></span></div><strong>'.H::e($card[1]).'</strong><small>'.H::e($card[2]).'</small></article>';
+  }
+
+  $body.='</div><div class="grid two section"><section class="panel"><div class="panel-head"><h3>Fee collection status</h3><a href="/fees">View payments</a></div><div class="status-row"><div><strong>'.(int)$s['paid_count'].'</strong><span>Fully paid</span></div><div><strong>'.(int)$s['partial_count'].'</strong><span>Partially paid</span></div><div><strong>'.(int)$s['unpaid_count'].'</strong><span>Unpaid</span></div></div><div class="progress"><span style="width:'.H::e($s['expected']>0?min(100,($s['collected_for_month']/$s['expected'])*100):0).'%"></span></div><p class="muted tiny">Collection progress by fee month. Receiving totals above use the actual payment date.</p></section><section class="panel"><div class="panel-head"><h3>Quick actions</h3></div><div class="quick-links"><a href="/students/new">+ Add student</a><a href="/fees/new">+ Record fee</a><a href="/attendance">Take attendance</a><a href="/enquiries/new">+ Add enquiry</a><a href="/reports">Open reports</a><a href="/reminders">Fee reminders</a></div></section></div>';
+
+  $daily=$s['daily_receiving']??[];
+  $maxDaily=0.0;
+  foreach($daily as $day)$maxDaily=max($maxDaily,(float)$day['amount']);
+  $dailyHtml='';
+  foreach($daily as $day){
+   $date=new \\DateTimeImmutable((string)$day['date']);
+   $amount=(float)$day['amount'];
+   $transactions=(int)$day['transactions'];
+   $width=$maxDaily>0?min(100,($amount/$maxDaily)*100):0;
+   $description=$transactions===0?'No fee received':$transactions.' payment'.($transactions===1?'':'s');
+   $dailyHtml.='<div class="daily-receiving-row"><div class="daily-date-badge"><strong>'.H::e($date->format('d')).'</strong><small>'.H::e($date->format('M')).'</small></div><div class="daily-receiving-main"><div class="daily-receiving-top"><div><strong>'.H::e($date->format('D, d M')).'</strong><small>'.H::e($description).'</small></div><strong>'.H::money($amount).'</strong></div><div class="daily-receiving-track"><span style="width:'.H::e($width).'%"></span></div></div></div>';
+  }
+  if($dailyHtml==='')$dailyHtml='<div class="empty">No elapsed days for this selected month yet.</div>';
+
+  $body.='<section class="panel section daily-receiving-panel"><div class="panel-head"><div><h3>Day-wise receiving</h3><p class="muted tiny">Actual cash received by payment date · '.H::e($monthLabel).'</p></div><div class="daily-receiving-total"><small>Month total</small><strong>'.H::money($s['received_during_month']).'</strong></div></div><div class="daily-receiving-list">'.$dailyHtml.'</div></section>';
   Response::html($this->layout('Dashboard',$body));
  }
  private function resourceList(string $key):never {
