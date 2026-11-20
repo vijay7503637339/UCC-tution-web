@@ -32,3 +32,33 @@
 .daily-receiving-link{display:grid;color:inherit;text-decoration:none;border-radius:10px;transition:background .16s,box-shadow .16s;padding-left:5px;padding-right:5px}
 .daily-receiving-link:hover{background:#f7f9ff;box-shadow:inset 0 0 0 1px #e8edff}
 .daily-receiving-link:focus-visible,.stat-card-anchor:focus-visible{outline:3px solid #9bb2ff;outline-offset:2px}
+
+
+/* Advanced filters, module totals and linked batch registers */
+.resource-filter-form{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:var(--shadow)}
+.resource-filter-main{display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.resource-filter-main>.field{min-width:210px;flex:1}
+.filter-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn.ghost{background:#f6f8fc;border:1px solid var(--line);color:#58657b}
+.advanced-filter{border-top:1px solid var(--line);margin-top:13px;padding-top:11px}
+.advanced-filter summary{cursor:pointer;list-style:none;font-size:12px;font-weight:800;color:var(--blue);user-select:none}
+.advanced-filter summary::-webkit-details-marker{display:none}
+.advanced-filter summary:after{content:"＋";float:right;font-weight:800}
+.advanced-filter[open] summary:after{content:"－"}
+.filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:14px 0 10px}
+.filter-field input,.filter-field select{min-width:0}
+.resource-summary{margin-bottom:16px}
+.count-link{display:inline-grid;gap:2px;color:var(--blue);text-decoration:none}
+.count-link strong{font:800 16px Manrope;color:var(--blue)}
+.count-link small{font-size:10px;color:var(--muted)}
+.count-link:hover{text-decoration:underline}
+.dashboard-filter{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr)) auto;align-items:end;gap:9px;min-width:min(100%,620px)}
+.dashboard-filter .field>span{color:#e2eaff}
+.dashboard-filter input,.dashboard-filter select{width:100%;border:0;border-radius:8px;background:#fff;color:var(--ink);padding:10px;font-size:12px}
+.dashboard-filter .filter-field{min-width:0}
+.attendance-history-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.attendance-history-filter .btn{align-self:end}
+.payment-date-link{font-weight:700;text-decoration:underline;text-decoration-color:#bdcaff;text-underline-offset:3px}
+.payment-date-link:hover{color:var(--blue)}
+@media(max-width:1050px){.filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-filter{grid-template-columns:repeat(2,minmax(0,1fr));min-width:0}}
+@media(max-width:580px){.resource-filter-form{padding:11px}.resource-filter-main{align-items:stretch}.resource-filter-main>.field{min-width:100%}.filter-grid,.attendance-history-filter{grid-template-columns:1fr}.filter-actions{width:100%}.filter-actions .btn{flex:1;text-align:center}.dashboard-filter{grid-template-columns:1fr;width:100%}.dashboard-filter .btn{width:100%}}
