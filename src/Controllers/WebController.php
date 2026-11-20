@@ -17,6 +17,8 @@ final class WebController {
   if($path==='/logout'&&$method==='POST'){H::verifyCsrf();Auth::logout();Response::redirect('/login');}
   Auth::requireWeb();
   if($path==='/'||$path==='/dashboard')$this->dashboard();
+  if($path==='/receiving'&&$method==='GET')$this->receivingDetail(null);
+  if(preg_match('#^/receiving/(\\d{4}-\\d{2}-\\d{2})$#',$path,$receiving)&&$method==='GET')$this->receivingDetail($receiving[1]);
   if(preg_match('#^/students/([0-9]+)$#',$path,$profile)&&$method==='GET')$this->studentProfile((int)$profile[1]);
   if(preg_match('#^/enquiries/([0-9]+)/convert$#',$path,$conversion))$this->convertEnquiry((int)$conversion[1],$method);
   if($path==='/attendance')$this->attendance($method);
@@ -65,7 +67,9 @@ final class WebController {
 
   $body='<section class="welcome"><div><p class="eyebrow light">OVERVIEW</p><h2>Good day, '.H::e(Auth::user()['name']??'Admin').'</h2><p>Here is the tuition centre summary for '.H::e($monthLabel).'.</p></div><form method="get" action="/" class="month-picker"><input type="month" name="month" value="'.H::e($month).'"><button class="btn light-btn">Apply</button></form></section><div class="grid stats">';
   foreach($cards as $i=>$card){
-   $body.='<article class="stat-card"><div class="stat-top"><span>'.H::e($card[0]).'</span><span class="stat-dot dot-'.($i%7).'"></span></div><strong>'.H::e($card[1]).'</strong><small>'.H::e($card[2]).'</small></article>';
+   $cardHtml='<article class="stat-card"><div class="stat-top"><span>'.H::e($card[0]).'</span><span class="stat-dot dot-'.($i%7).'"></span></div><strong>'.H::e($card[1]).'</strong><small>'.H::e($card[2]).'</small></article>';
+   $cardHref=$i===0?'/receiving/'.date('Y-m-d'):($i===1?'/receiving?month='.rawurlencode($month):null);
+   $body.=$cardHref!==null?'<a class="stat-card-anchor" href="'.H::e($cardHref).'">'.$cardHtml.'</a>':$cardHtml;
   }
 
   $body.='</div><div class="grid two section"><section class="panel"><div class="panel-head"><h3>Fee collection status</h3><a href="/fees">View payments</a></div><div class="status-row"><div><strong>'.(int)$s['paid_count'].'</strong><span>Fully paid</span></div><div><strong>'.(int)$s['partial_count'].'</strong><span>Partially paid</span></div><div><strong>'.(int)$s['unpaid_count'].'</strong><span>Unpaid</span></div></div><div class="progress"><span style="width:'.H::e($s['expected']>0?min(100,($s['collected_for_month']/$s['expected'])*100):0).'%"></span></div><p class="muted tiny">Collection progress by fee month. Receiving totals above use the actual payment date.</p></section><section class="panel"><div class="panel-head"><h3>Quick actions</h3></div><div class="quick-links"><a href="/students/new">+ Add student</a><a href="/fees/new">+ Record fee</a><a href="/attendance">Take attendance</a><a href="/enquiries/new">+ Add enquiry</a><a href="/reports">Open reports</a><a href="/reminders">Fee reminders</a></div></section></div>';
@@ -80,12 +84,39 @@ final class WebController {
    $transactions=(int)$day['transactions'];
    $width=$maxDaily>0?min(100,($amount/$maxDaily)*100):0;
    $description=$transactions===0?'No fee received':$transactions.' payment'.($transactions===1?'':'s');
-   $dailyHtml.='<div class="daily-receiving-row"><div class="daily-date-badge"><strong>'.H::e($date->format('d')).'</strong><small>'.H::e($date->format('M')).'</small></div><div class="daily-receiving-main"><div class="daily-receiving-top"><div><strong>'.H::e($date->format('D, d M')).'</strong><small>'.H::e($description).'</small></div><strong>'.H::money($amount).'</strong></div><div class="daily-receiving-track"><span style="width:'.H::e($width).'%"></span></div></div></div>';
+   $dailyHtml.='<a class="daily-receiving-row daily-receiving-link" href="/receiving/'.H::e($date->format('Y-m-d')).'"><span class="daily-date-badge"><strong>'.H::e($date->format('d')).'</strong><small>'.H::e($date->format('M')).'</small></span><span class="daily-receiving-main"><span class="daily-receiving-top"><span><strong>'.H::e($date->format('D, d M')).'</strong><small>'.H::e($description).'</small></span><strong>'.H::money($amount).'</strong></span><span class="daily-receiving-track"><span style="width:'.H::e($width).'%"></span></span></span></a>';
   }
   if($dailyHtml==='')$dailyHtml='<div class="empty">No elapsed days for this selected month yet.</div>';
 
   $body.='<section class="panel section daily-receiving-panel"><div class="panel-head"><div><h3>Day-wise receiving</h3><p class="muted tiny">Actual cash received by payment date · '.H::e($monthLabel).'</p></div><div class="daily-receiving-total"><small>Month total</small><strong>'.H::money($s['received_during_month']).'</strong></div></div><div class="daily-receiving-list">'.$dailyHtml.'</div></section>';
   Response::html($this->layout('Dashboard',$body));
+ }
+ private function receivingDetail(?string $date):never {
+  $timezone=new \\DateTimeZone('Asia/Kolkata');
+  if($date!==null){
+   $parsed=\\DateTimeImmutable::createFromFormat('!Y-m-d',$date,$timezone);
+   if(!$parsed||$parsed->format('Y-m-d')!==$date)Response::html($this->layout('Receiving details','<div class="panel">Invalid payment date.</div>'),400);
+   $start=$date;$end=$parsed->modify('+1 day')->format('Y-m-d');
+   $heading='Payments received on '.$parsed->format('d F Y');$rangeLabel=$parsed->format('d M Y');$backMonth=$parsed->format('Y-m');
+  }else{
+   $month=$this->monthParam();$monthStart=new \\DateTimeImmutable($month.'-01',$timezone);
+   $start=$monthStart->format('Y-m-d');$end=$monthStart->modify('+1 month')->format('Y-m-d');
+   $heading='Payments received in '.$monthStart->format('F Y');$rangeLabel=$monthStart->format('F Y');$backMonth=$month;
+  }
+  $rows=TuitionService::receivedPayments($start,$end);$total=0.0;
+  foreach($rows as $row)$total+=(float)$row['amount'];
+  $body='<div class="toolbar"><a class="btn secondary" href="/?month='.H::e($backMonth).'">← Back to dashboard</a><span class="pill blue">'.count($rows).' transactions</span></div>';
+  $body.='<div class="grid stats three"><article class="stat-card"><span>Total received</span><strong>'.H::money($total).'</strong><small>'.H::e($rangeLabel).'</small></article><article class="stat-card"><span>Transactions</span><strong>'.number_format(count($rows)).'</strong><small>Individual fee receipts</small></article><article class="stat-card"><span>Average receipt</span><strong>'.H::money(count($rows)>0?$total/count($rows):0).'</strong><small>Per transaction</small></article></div>';
+  $body.='<section class="panel section"><div class="panel-head"><div><h3>'.H::e($heading).'</h3><p class="muted tiny">Payment date is shown in India Standard Time (IST).</p></div><a href="/fees">All fee records</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Student</th><th>Class</th><th>Fee month</th><th>Received date & time</th><th>Amount</th><th>Method</th><th>Note</th></tr></thead><tbody>';
+  foreach($rows as $row){
+   $paidAt=new \\DateTimeImmutable((string)$row['paid_on_local'],$timezone);
+   $feeMonth=date('F Y',strtotime((string)$row['fee_month']));
+   $student='<a href="/students/'.(int)$row['student_id'].'">'.H::e($row['student_name']??'Unknown student').'</a>';
+   $body.='<tr><td>#'.H::e($row['id']).'</td><td><strong>'.$student.'</strong></td><td>'.H::e($row['student_class']??'').'</td><td>'.H::e($feeMonth).'</td><td>'.H::e($paidAt->format('d M Y, h:i A')).'</td><td><strong>'.H::money($row['amount']).'</strong></td><td>'.H::e($row['method']??'').'</td><td>'.H::e($row['note']??'').'</td></tr>';
+  }
+  if(!$rows)$body.='<tr><td colspan="8" class="empty">No fee transactions were received on this date.</td></tr>';
+  $body.='</tbody></table></div></section>';
+  Response::html($this->layout('Receiving details',$body));
  }
  private function resourceList(string $key):never {
   $filters=$_GET;$rows=TuitionService::all($key,$filters);$title=self::TITLES[$key];$body='<div class="toolbar"><form method="get" class="search-form"><input type="search" name="q" value="'.H::e($filters['q']??'').'" placeholder="Search '.H::e(strtolower($title)).'"><button class="btn secondary">Search</button></form>';
@@ -112,7 +143,7 @@ final class WebController {
    'students'=>'<td><strong><a href="/students/'.(int)$r['id'].'">'.H::e($r['name']).'</a></strong><small class="subline">'.H::e($r['guardian_phone']).'</small></td><td>'.H::e($r['class_name']).'</td><td>'.H::e($r['guardian_phone']).'</td><td>'.H::e($this->lookupName('batches',$r['batch_id']??null)).'</td><td>'.H::money($r['monthly_fee']).'</td><td>'.H::e($r['due_day']).'</td><td><span class="pill '.($r['status']==='active'?'green':'gray').'">'.H::e(ucfirst($r['status'])).'</span></td>'.$actions($r['id']),
    'batches'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['schedule']).'</td><td>'.H::e($this->lookupName('teachers',$r['teacher_id']??null)).'</td>'.$actions($r['id']),
    'teachers'=>'<td><strong>'.H::e($r['name']).'</strong></td><td>'.H::e($r['subject']).'</td><td>'.H::e($r['phone']).'</td>'.$actions($r['id']),
-   'fees'=>'<td>#'.H::e($r['id']).'</td><td>'.H::e($this->lookupName('students',$r['student_id'])).'</td><td>'.H::date($r['fee_month']).'</td><td>'.H::date($r['paid_on']).'</td><td><strong>'.H::money($r['amount']).'</strong></td><td>'.H::e($r['method']).'</td>'.$actions($r['id']),
+   'fees'=>'<td>#'.H::e($r['id']).'</td><td>'.H::e($this->lookupName('students',$r['student_id'])).'</td><td>'.H::date($r['fee_month']).'</td><td>'.H::dateTime($r['paid_on']).'</td><td><strong>'.H::money($r['amount']).'</strong></td><td>'.H::e($r['method']).'</td>'.$actions($r['id']),
    'enquiries'=>'<td><strong>'.H::e($r['student_name']).'</strong></td><td>'.H::e($r['parent_name']).'</td><td>'.H::e($r['phone']).'</td><td>'.H::e($r['class_name']).'</td><td><span class="pill blue">'.H::e($r['status']).'</span></td><td>'.H::date($r['expected_join_date']).'</td><td class="actions">'.(empty($r['converted_to_student_id'])?'<a href="/enquiries/'.(int)$r['id'].'/convert">Convert</a>':'<a href="/students/'.(int)$r['converted_to_student_id'].'">Student</a>').'<a href="/enquiries/'.(int)$r['id'].'/edit">Edit</a><form method="post" action="/enquiries/'.(int)$r['id'].'/delete">'.self::csrfStatic().'<button class="link danger">Delete</button></form></td>',
    'expenses'=>'<td>'.H::date($r['expense_date']).'</td><td>'.H::e($r['description']).'</td><td>'.H::e($r['category']).'</td><td><strong>'.H::money($r['amount']).'</strong></td>'.$actions($r['id']),
    default=>'<td>'.H::date($r['log_date']).'</td><td>'.H::e($r['message']).'</td><td>'.H::e($r['type']).'</td>'
@@ -261,7 +292,7 @@ final class WebController {
   $body='<div class="toolbar"><form method="get" class="search-form"><input type="month" name="month" value="'.H::e($month).'"><button class="btn secondary">Show report</button></form><a class="btn primary" href="/reports?month='.H::e($month).'&export=csv">Export CSV</a></div><div class="grid stats three">';
   foreach([['Expected',H::money($d['expected'])],['Fee month collected',H::money($d['collected_for_month'])],['Pending',H::money($d['pending'])],['Overdue',H::money($d['overdue'])],['Received in month',H::money($d['received_during_month'])],['Expenses',H::money($d['expenses'])]] as $c)$body.='<article class="stat-card"><span>'.H::e($c[0]).'</span><strong>'.H::e($c[1]).'</strong></article>';
   $body.='</div><div class="panel section"><div class="panel-head"><h3>Payment transactions</h3><a href="/fees">Manage fees</a></div><div class="table-wrap"><table><thead><tr><th>Receipt</th><th>Student</th><th>Fee month</th><th>Paid on</th><th>Amount</th><th>Method</th></tr></thead><tbody>';
-  foreach($fees as $f)$body.='<tr><td>#'.H::e($f['id']).'</td><td>'.H::e($this->lookupName('students',$f['student_id'])).'</td><td>'.H::date($f['fee_month']).'</td><td>'.H::date($f['paid_on']).'</td><td>'.H::money($f['amount']).'</td><td>'.H::e($f['method']).'</td></tr>';
+  foreach($fees as $f)$body.='<tr><td>#'.H::e($f['id']).'</td><td>'.H::e($this->lookupName('students',$f['student_id'])).'</td><td>'.H::date($f['fee_month']).'</td><td>'.H::dateTime($f['paid_on']).'</td><td>'.H::money($f['amount']).'</td><td>'.H::e($f['method']).'</td></tr>';
   if(!$fees)$body.='<tr><td colspan="6" class="empty">No transactions for this fee month.</td></tr>';
   $body.='</tbody></table></div></div>';
   if(($_GET['export']??'')==='csv')$this->exportCsv($month);
