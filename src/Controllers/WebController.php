@@ -175,7 +175,8 @@ private function resourceList(string $key):never {
    $html.=$this->filterInput('subject_filter','Subject contains',$filters['subject_filter']??'','text').$this->filterSelect('batch_id','Assigned batch',$batches,$filters['batch_id']??'');
   }elseif($key==='fees'){
    $students=[];foreach(TuitionService::all('students',['status'=>'active']) as $r)$students[(string)$r['id']]=$r['name'];
-   $html.=$this->filterInput('month','Fee month',$filters['month']??'','month').$this->filterSelect('student_id','Student / family',$students,$filters['student_id']??'').$this->filterSelect('batch_id','Batch',$batches,$filters['batch_id']??'');
+   $classes=[];foreach(TuitionService::distinctValues('students','class_name') as $v)$classes[$v]=$v;
+   $html.=$this->filterInput('month','Fee month',$filters['month']??'','month').$this->filterSelect('student_id','Student / family',$students,$filters['student_id']??'').$this->filterSelect('batch_id','Batch',$batches,$filters['batch_id']??'').$this->filterSelect('class_name','Class',$classes,$filters['class_name']??'');
    $html.=$this->filterSelect('method','Payment method',['Cash'=>'Cash','UPI'=>'UPI','Bank Transfer'=>'Bank Transfer','Card'=>'Card','Other'=>'Other'],$filters['method']??'');
    $html.=$this->filterInput('paid_from','Received from',$filters['paid_from']??'','date').$this->filterInput('paid_to','Received to',$filters['paid_to']??'','date');
    $html.=$this->filterInput('min_amount','Minimum amount',$filters['min_amount']??'','number').$this->filterInput('max_amount','Maximum amount',$filters['max_amount']??'','number');
